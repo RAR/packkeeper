@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+*.egg-info/
+build/
+dist/
+*.spec
+.pytest_cache/
+eg4tool-*.log
+eg4tool-*.before-*.json
+.DS_Store

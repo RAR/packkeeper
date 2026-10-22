@@ -1,0 +1,110 @@
+"""Serial transport and port discovery.
+
+A transport sends one request frame and returns the raw reply frame. It does
+no Modbus checking beyond knowing how long a reply is; pack.py checks the rest.
+"""
+
+from __future__ import annotations
+
+import sys
+import time
+from dataclasses import dataclass
+
+from . import modbus
+
+BAUD = 115200
+REPLY_TIMEOUT_S = 1.0
+
+# USB vendor IDs of common USB-RS232 bridges, for the port list.
+KNOWN_BRIDGES = {
+    0x0403: "FTDI",
+    0x1A86: "CH340",
+    0x067B: "Prolific",
+    0x10C4: "Silicon Labs CP210x",
+}
+
+
+class NoReply(Exception):
+    """The pack did not answer (or answered only part of a frame)."""
+
+
+@dataclass
+class PortInfo:
+    device: str
+    description: str
+    hwid: str
+    bridge: str | None
+
+    @property
+    def label(self) -> str:
+        extra = f" [{self.bridge}]" if self.bridge else ""
+        return f"{self.device} - {self.description}{extra}"
+
+
+def list_ports() -> list[PortInfo]:
+    from serial.tools import list_ports as lp
+
+    ports = []
+    for p in lp.comports():
+        # On macOS use /dev/cu.* only: /dev/tty.* blocks waiting for carrier detect.
+        if sys.platform == "darwin" and p.device.startswith("/dev/tty."):
+            continue
+        bridge = KNOWN_BRIDGES.get(p.vid) if p.vid else None
+        ports.append(PortInfo(p.device, p.description or "", p.hwid or "", bridge))
+    ports.sort(key=lambda p: (p.bridge is None, p.device))
+    return ports
+
+
+def guess_port() -> str | None:
+    """The only USB serial port, if there is exactly one."""
+    usb = [p for p in list_ports() if p.bridge or "USB" in p.hwid.upper()]
+    return usb[0].device if len(usb) == 1 else None
+
+
+def resync(buf: bytes, address: int, function: int) -> tuple[bytes, bytes]:
+    """Drop leading bytes that cannot start a reply to (address, function).
+
+    Returns (the buffer from a plausible frame start, the dropped bytes). A
+    line settling or a stray byte must not make every retry fail the same way.
+    """
+    ok_functions = (function, function | modbus.EXCEPTION_FLAG)
+    i = 0
+    while i < len(buf):
+        if buf[i] == address and (i + 1 >= len(buf) or buf[i + 1] in ok_functions):
+            break
+        i += 1
+    return buf[i:], buf[:i]
+
+
+class SerialTransport:
+    def __init__(self, port: str, timeout: float = REPLY_TIMEOUT_S):
+        import serial
+
+        self.port = port
+        self.timeout = timeout
+        self.noise = b""  # bytes dropped before the last reply
+        self._serial = serial.Serial(
+            port, BAUD, bytesize=8, parity="N", stopbits=1, timeout=0.05, write_timeout=1.0
+        )
+
+    def transact(self, request: bytes) -> bytes:
+        s = self._serial
+        s.reset_input_buffer()
+        s.write(request)
+        s.flush()
+        self.noise = b""
+        deadline = time.monotonic() + self.timeout
+        reply = b""
+        while time.monotonic() < deadline:
+            reply, dropped = resync(reply, request[0], request[1])
+            self.noise += dropped
+            want = modbus.expected_reply_length(reply)
+            n = (want - len(reply)) if want is not None else 3 - len(reply)
+            if want is not None and n <= 0:
+                return reply
+            reply += s.read(n)
+        got = self.noise + reply
+        raise NoReply(f"no reply from the pack on {self.port}" + (f" (got {got.hex(' ').upper()})" if got else ""))
+
+    def close(self) -> None:
+        self._serial.close()
