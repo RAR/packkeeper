@@ -53,8 +53,8 @@ from .transport import NoReply, list_ports
 
 SIM_PORT = "Simulated pack (no hardware)"
 ONE_PACK_NOTE = (
-    "<b>One pack at a time.</b> Set the pack's DIP ID to <b>1</b> and unplug the link cables from its "
-    "paralleling ports, then plug the USB-RS232 adapter into the pack's <b>right-most</b> paralleling port."
+    "<b>One pack at a time.</b> Unplug the link cables from the pack's paralleling ports, then plug the "
+    "USB-RS232 adapter into its <b>right-most</b> paralleling port. The DIP ID can stay as it is."
 )
 
 
@@ -694,7 +694,7 @@ class MainWindow(QMainWindow):
         if err is not None:
             self.live.updated.setText(f"Live read failed: {err}")
             if isinstance(err, NoReply):
-                self.status("The pack is not answering. Check DIP ID 1, the link cables are unplugged, and the adapter is in the right-most paralleling port.", error=True)
+                self.status("The pack is not answering. Check the link cables are unplugged and the adapter is in the right-most paralleling port.", error=True)
             return
         self._last_rt = rt
         self.live.show_realtime(rt, self.fahrenheit)

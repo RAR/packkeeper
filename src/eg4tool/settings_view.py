@@ -681,8 +681,8 @@ class SettingsTab(QWidget):
         QMessageBox.information(
             self, "Copy to another pack",
             "This pack's settings are kept as the comparison.\n\n"
-            "1. Disconnect and put this pack's link cables and DIP ID back.\n"
-            "2. On the target pack: DIP ID 1, link cables unplugged, adapter in its right-most "
+            "1. Disconnect and plug this pack's link cables back in.\n"
+            "2. On the target pack: link cables unplugged, adapter in its right-most "
             "paralleling port. Connect.\n"
             "3. Here, click \"Stage all differences\", then \"Review and write…\".",
         )

@@ -29,15 +29,13 @@ through the same diff and confirmation as any backup.
 ## Connecting: one pack at a time
 
 There is no dedicated service port: the USB-RS232 adapter plugs into the
-pack's **right-most paralleling port**, the one EG4's own cable uses. The pack
-only answers there when:
+pack's **right-most paralleling port**, the one EG4's own cable uses. It
+answers there at Modbus address 1 whatever its DIP ID, so the DIP switches
+stay as they are. It only answers when **no other pack is linked to it**:
+unplug the link cables from its paralleling ports first.
 
-- the pack's **DIP ID is 1**, and
-- **no other pack is linked to it:** unplug the link cables from its
-  paralleling ports.
-
-So: set DIP 1, unplug the link cables, plug in the adapter, service the pack,
-then put the DIP ID and link cables back.
+So: unplug the link cables, plug in the adapter, service the pack, then plug
+the link cables back in.
 
 Hardware: a USB-RS232 adapter at real RS232 levels (not TTL), with an RJ45
 plug for the right-most paralleling port. EG4's cable is an FT232R lead; CH340, Prolific and CP210x

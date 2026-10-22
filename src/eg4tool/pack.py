@@ -15,10 +15,9 @@ ADDRESS = 1  # over RS232 the pack answers at address 1 whatever the DIP ID
 READ_RETRIES = 3
 
 CONNECTION_HELP = """\
-The pack only answers over RS232 when:
-  - its DIP ID is set to 1, and
-  - no other pack is linked to it: unplug the link cables from its paralleling ports.
-Also check:
+The pack only answers over RS232 when no other pack is linked to it:
+unplug the link cables from its paralleling ports. (Its DIP ID does not
+matter: it always answers at address 1 here.) Also check:
   - the adapter is plugged into the pack's RIGHT-MOST paralleling port
     (there is no separate service port; EG4's own cable uses this one),
   - the adapter is RS232-level (not TTL),

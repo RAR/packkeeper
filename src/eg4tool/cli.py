@@ -21,8 +21,8 @@ from .settings import LINKED_PAIRS, SETTINGS, SettingError
 from .transport import NoReply, guess_port, list_ports
 
 ONE_PACK_NOTE = (
-    "One pack at a time: set the pack's DIP ID to 1, unplug the link cables from its "
-    "paralleling ports, then plug the USB-RS232 adapter into its right-most paralleling port."
+    "One pack at a time: unplug the link cables from the pack's paralleling ports, then plug "
+    "the USB-RS232 adapter into its right-most paralleling port. The DIP ID does not matter."
 )
 
 
@@ -279,7 +279,7 @@ def cmd_copy(args) -> int:
     backup.save(save, source, port=getattr(pack.transport, "port", None))
     pack.log.result(f"source backup saved to {save}")
     print(f"Source saved to {save}\n")
-    confirm_enter("Move the adapter to the TARGET pack (DIP 1, link cables unplugged, adapter in its "
+    confirm_enter("Move the adapter to the TARGET pack (link cables unplugged, adapter in its "
                   "right-most paralleling port), then press Enter")
     return run_write(pack, targets_from_block(source, skip), f"source pack ({save})", args, source=source)
 
