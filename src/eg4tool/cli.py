@@ -56,6 +56,9 @@ def main(argv: list[str] | None = None) -> int:
     except (CliError, BlankBlockError, backup.BackupError, SettingError, PackError, ModbusError, StaleError) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
+    except OSError as e:  # includes serial.SerialException: adapter unplugged, folder not writable
+        print(f"error: {e}", file=sys.stderr)
+        return 2
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -84,6 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     s = sub.add_parser("backup", parents=[common], help="save the pack's settings to a JSON file")
     s.add_argument("file", type=Path)
+    s.add_argument("--force", action="store_true", help="overwrite FILE if it exists")
     s.set_defaults(func=cmd_backup)
 
     s = sub.add_parser("diff", parents=[common], help="compare the pack with a backup or a profile")
@@ -186,6 +190,8 @@ def cmd_info(args) -> int:
 
 
 def cmd_backup(args) -> int:
+    if args.file.exists() and not args.force:
+        raise CliError(f"{args.file} already exists (use --force to overwrite it)")
     pack = open_pack(args, near=args.file)
     block = pack.read_block()
     print_identity(block)

@@ -547,7 +547,9 @@ class SettingsTab(QWidget):
             self.read_label.setText(f"Read from the pack at {self.read_at:%H:%M:%S}")
         else:
             self.read_label.setText("<span style='color:palette(placeholder-text)'>Connect a pack to read its settings.</span>")
-        self.read_btn.setEnabled(has and self.main.pack is not None and not self.main.worker.busy)
+        # Also the way to retry after a failed first read or a paused live view.
+        self.read_btn.setText("Read again" if has else "Read pack")
+        self.read_btn.setEnabled(self.main.pack is not None and not self.main.worker.busy)
         self.backup_btn.setEnabled(has)
         self.copy_btn.setEnabled(has)
 

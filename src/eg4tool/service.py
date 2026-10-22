@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 from .block import Block
+from .modbus import ModbusException
 from .pack import Pack
 from .planner import Change, Plan
 from .settings import BY_REGISTER, LINKED_PAIRS, REG_CLOCK, SETTINGS
@@ -97,9 +98,14 @@ def apply_plan(
         # From here on the frame may be on the wire: never report it as not sent.
         result.status = UNVERIFIED
         try:
-            result.acked = pack.write_register(change.register, change.new)
-            if not result.acked:
-                log.warn(f"no ack for {change.describe()}; reading back to see what the pack holds")
+            try:
+                result.acked = pack.write_register(change.register, change.new)
+            except ModbusException as e:
+                result.acked = False
+                log.warn(f"the pack refused {change.describe()}: {e}; reading back to see what it holds")
+            else:
+                if not result.acked:
+                    log.warn(f"no ack for {change.describe()}; reading back to see what the pack holds")
             block = pack.read_block()
         except Exception as e:  # noqa: BLE001 - report and stop, never continue blind
             log.error(f"stopped at {change.describe()}: {e}")

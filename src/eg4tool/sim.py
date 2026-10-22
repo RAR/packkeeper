@@ -39,6 +39,7 @@ class FakePack:
         self.drop_replies = 0  # next N requests get no reply
         self.drop_acks = 0  # next N writes are applied but not acked
         self.silent_after_write = 0  # after a write, ignore this many requests
+        self.refuse = {}  # register -> Modbus exception code answered to a write
         self.writes: list[tuple[int, list[int]]] = []
         self._clock_base: tuple[datetime, datetime] | None = None
         self.image = [0] * IMAGE_SIZE
@@ -76,6 +77,8 @@ class FakePack:
             ]
             if start + count > IMAGE_SIZE:
                 return self._exception(address, function, 2)
+            if start in self.refuse:
+                return self._exception(address, function, self.refuse[start])
             self.writes.append((start, values))
             for i, v in enumerate(values):
                 reg = start + i

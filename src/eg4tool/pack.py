@@ -57,18 +57,22 @@ class Pack:
         self.log.rx(reply)
         return reply
 
-    def read(self, start: int, count: int) -> list[int]:
+    def read(self, start: int, count: int, retries: int = READ_RETRIES) -> list[int]:
         request = modbus.read_request(self.address, start, count)
         last: Exception | None = None
-        for _ in range(READ_RETRIES):
+        for _ in range(retries):
             try:
-                return modbus.parse_read_reply(request, self._transact(request))
-            except modbus.ModbusException:
-                raise
+                reply = self._transact(request)  # logs its own failures
             except (NoReply, modbus.ModbusError) as e:
                 last = e
-                if isinstance(e, modbus.ModbusError):
-                    self.log.warn(f"bad reply: {e}")
+                continue
+            try:
+                return modbus.parse_read_reply(request, reply)
+            except modbus.ModbusException:
+                raise
+            except modbus.ModbusError as e:
+                last = e
+                self.log.warn(f"bad reply: {e}")
         assert last is not None
         raise last
 
@@ -79,8 +83,8 @@ class Pack:
             self.log.error("parameter block has every threshold zero (read over the RS485 bus, not RS232?)")
         return block.check_not_blank()
 
-    def read_realtime(self) -> Realtime:
-        regs = self.read(0x00, 0x12) + self.read(0x12, 0x15)
+    def read_realtime(self, retries: int = READ_RETRIES) -> Realtime:
+        regs = self.read(0x00, 0x12, retries) + self.read(0x12, 0x15, retries)
         return Realtime.decode(regs)
 
     def write_register(self, register: int, raw: int) -> bool:

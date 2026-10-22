@@ -1,3 +1,4 @@
+import time
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -504,3 +505,75 @@ def test_each_pre_write_backup_gets_its_own_file(tmp_path):
     a.write_text("{}")
     b = log.before_path()
     assert a != b and not b.exists()
+
+
+def test_write_refused_with_exception_is_read_back_not_unverified():
+    sim, pack = fake_pack()
+    sim.refuse = {0x43: 3}
+    p = make_plan(pack.read_block(), {"cell_overvoltage_warning": 3650})
+    res = apply_plan(pack, p)
+    assert res.results[0].status == NOT_APPLIED and res.results[0].acked is False
+    assert res.final is not None
+
+
+def test_late_reply_is_not_taken_for_the_next_request(monkeypatch):
+    # The pack answers the first request after the reply deadline; the retry
+    # must not take that late reply as its own.
+    from eg4tool import transport
+
+    class SlowSerial:
+        def __init__(self, *a, **k):
+            self.pending = []  # (time it arrives, bytes)
+            self.calls = 0
+
+        def reset_input_buffer(self):
+            now = time.monotonic()
+            self.pending = [(t, b) for t, b in self.pending if t > now]
+
+        def write(self, req):
+            self.calls += 1
+            reply = FakePack().transact(req)
+            if self.calls == 1:  # late, and a different block from what the retry will get
+                reply = FakePack().transact(req)[:-2]
+                reply = modbus.with_crc(reply[:3] + bytes([0xAA, 0xAA]) + reply[5:])
+                self.pending.append((time.monotonic() + 1.2, reply))
+            else:
+                self.pending.append((time.monotonic() + 0.01, reply))
+
+        def flush(self):
+            pass
+
+        def read(self, n):
+            time.sleep(0.05)
+            now = time.monotonic()
+            out = b""
+            while self.pending and self.pending[0][0] <= now and len(out) < n:
+                t, b = self.pending[0]
+                take = b[: n - len(out)]
+                out += take
+                rest = b[len(take):]
+                self.pending[0:1] = [(t, rest)] if rest else []
+            return out
+
+        def close(self):
+            pass
+
+    import serial
+    monkeypatch.setattr(serial, "Serial", SlowSerial)
+    pack = Pack(transport.SerialTransport("FAKE"), SessionLog())
+    block = pack.read_block()
+    assert block.registers[0] == 0x6AA8  # the retry's own reply, not the late 0xAAAA one
+
+
+def test_step_error_shows_the_typed_value():
+    s = SETTINGS["charge_overcurrent_1_protection"]
+    assert "205.05 A is not on the 0.1 step" in s.limit_error(s.parse("205.05"))
+
+
+def test_cli_backup_refuses_to_overwrite(tmp_path, capsys):
+    from eg4tool.cli import main
+    f = tmp_path / "b.json"
+    assert main(["backup", str(f), "--simulate", "--log-dir", str(tmp_path)]) == 0
+    assert main(["backup", str(f), "--simulate", "--log-dir", str(tmp_path)]) == 2
+    assert "already exists" in capsys.readouterr().err
+    assert main(["backup", str(f), "--force", "--simulate", "--log-dir", str(tmp_path)]) == 0

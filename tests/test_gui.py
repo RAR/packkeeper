@@ -227,3 +227,28 @@ def test_linked_pair_revert_unstages_partner(window):
     wait(app, lambda: len(w.settings.staged) == 2)
     edit(w, "short_circuit_current", "300")  # back to the pack's value
     wait(app, lambda: w.settings.staged == {})
+
+
+def test_silent_port_pauses_live_and_keeps_disconnect(window, monkeypatch):
+    app, w = window
+    from eg4tool import sim
+    monkeypatch.setattr(gui.QMessageBox, "warning", lambda *a, **k: None)
+    orig = sim.FakePack
+
+    def silent():
+        p = orig()
+        p.drop_replies = 10_000
+        return p
+
+    sim.FakePack = silent
+    try:
+        w.ports.setCurrentIndex(w.ports.findData(gui.SIM_PORT))
+        w.toggle_connect()
+    finally:
+        sim.FakePack = orig
+    wait(app, lambda: not w.worker.busy and not w.live_timer.isActive())
+    assert "paused" in w.live.updated.text()
+    assert w.settings.read_btn.isEnabled() and w.settings.read_btn.text() == "Read pack"
+    assert w.connect_btn.isEnabled()
+    w.toggle_connect()  # disconnect
+    assert w.pack is None

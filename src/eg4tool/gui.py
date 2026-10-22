@@ -13,6 +13,7 @@ import sys
 import traceback
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import QObject, Qt, QTimer, QUrl, Signal
@@ -244,6 +245,7 @@ class ReviewDialog(QDialog):
         self.plan = plan
         self.result: ApplyResult | None = None
         self.writing = False
+        self.pre: Path | None = None
         f = main.fahrenheit
         self.setWindowTitle("Review changes")
         self.resize(820, 560)
@@ -348,6 +350,8 @@ class ReviewDialog(QDialog):
         log.info("confirmed by user")
         pre = log.before_path()
 
+        self.pre = pre
+
         def job():
             if pre:
                 backup.save(pre, plan.base, port=self.main.port_name)
@@ -381,6 +385,7 @@ class ReviewDialog(QDialog):
         if res.ok:
             self.outcome.setText(
                 f"<b style='color:{GOOD.name()}'>All {n_ok} write(s) confirmed</b> by reading the block back."
+                f"<br>The settings from before the write are saved in {self.pre}."
             )
         else:
             extra = "".join(f"<br>Unexpected: {u}" for u in res.unexpected)
@@ -388,7 +393,8 @@ class ReviewDialog(QDialog):
             self.outcome.setText(
                 f"<b style='color:{BAD.name()}'>Stopped:</b> {res.stopped}. {n_ok} of {len(res.results)} confirmed."
                 f"{extra}<br>Every write that was confirmed left the block valid. Read the pack and check the "
-                "Settings tab before using it. See the Log tab."
+                f"Settings tab before using it. See the Log tab. The settings from before the write are saved "
+                f"in {self.pre}."
             )
         self.main.after_write(res.final)
 
@@ -588,7 +594,8 @@ class MainWindow(QMainWindow):
             self._log_shown = len(lines)
 
     def on_busy(self, busy: bool):
-        self.connect_btn.setEnabled(not busy)
+        # Disconnect stays available while a read waits on a silent port.
+        self.connect_btn.setEnabled(not busy or self.pack is not None)
         self.settings.read_btn.setEnabled(not busy and self.pack is not None)
         if busy:
             QGuiApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
@@ -673,6 +680,8 @@ class MainWindow(QMainWindow):
         self.worker.submit(pack.read_block, self.got_block)
 
     def got_block(self, block: Block | None, err: Exception | None):
+        if self.pack is None:  # disconnected while the read was waiting
+            return
         if err is not None:
             self.settings.set_block(None)
             self.clock.show_block(None)
@@ -682,19 +691,27 @@ class MainWindow(QMainWindow):
         self.settings.set_block(block)
         self.clock.show_block(block)
         self.identity.setText(f"<b>{block.model}</b> · firmware {block.firmware}")
+        if not self.live_timer.isActive() and QApplication.activeModalWidget() is None:
+            self.poll_live()
+            self.live_timer.start(2000)
         self.status("Settings read from the pack.")
 
     def poll_live(self):
         if self.pack is None or self.worker.busy:
             return
         pack = self.pack
-        self.worker.submit(pack.read_realtime, self.got_live)
+        self.worker.submit(lambda: pack.read_realtime(retries=1), self.got_live)
 
     def got_live(self, rt: Realtime | None, err: Exception | None):
+        if self.pack is None:
+            return
         if err is not None:
-            self.live.updated.setText(f"Live read failed: {err}")
+            # Stop polling a silent port: each poll would hold the worker for seconds.
+            self.live_timer.stop()
+            self.live.updated.setText(f"Live view paused: {err}. Click Read again on the Settings tab to retry.")
             if isinstance(err, NoReply):
-                self.status("The pack is not answering. Check the link cables are unplugged and the adapter is in the right-most paralleling port.", error=True)
+                self.status("The pack is not answering. Check the link cables are unplugged and the adapter "
+                            "is in the right-most paralleling port.", error=True)
             return
         self._last_rt = rt
         self.live.show_realtime(rt, self.fahrenheit)

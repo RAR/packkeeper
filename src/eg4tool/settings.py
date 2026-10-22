@@ -134,7 +134,8 @@ class Setting:
                 f"{self.format(self.raw_min)} .. {self.format(self.raw_max)}"
             )
         if (raw - self.raw_min) % self.raw_step:
-            return f"{self.label} {self.format(raw)} is not on the {self.step} step"
+            u = f" {self.display_unit}" if self.display_unit else ""
+            return f"{self.label} {self.value(raw)}{u} is not on the {self.step} step"
         return None
 
     def format(self, raw: int, fahrenheit: bool = False, unit: bool = True) -> str:

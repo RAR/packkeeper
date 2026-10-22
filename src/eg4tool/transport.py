@@ -6,6 +6,7 @@ no Modbus checking beyond knowing how long a reply is; pack.py checks the rest.
 
 from __future__ import annotations
 
+import os
 import sys
 import time
 from dataclasses import dataclass
@@ -14,6 +15,8 @@ from . import modbus
 
 BAUD = 115200
 REPLY_TIMEOUT_S = 1.0
+LATE_REPLY_S = 1.5  # longest wait for a timed-out reply to finish arriving
+QUIET_S = 0.3  # after a timeout, the line must be silent this long before the next request
 
 # USB vendor IDs of common USB-RS232 bridges, for the port list.
 KNOWN_BRIDGES = {
@@ -83,12 +86,26 @@ class SerialTransport:
         self.port = port
         self.timeout = timeout
         self.noise = b""  # bytes dropped before the last reply
+        self._late = False  # the last request timed out: its reply may still arrive
+        # POSIX ports are shared unless asked otherwise; Windows ports are always exclusive.
+        extra = {"exclusive": True} if os.name == "posix" else {}
         self._serial = serial.Serial(
-            port, BAUD, bytesize=8, parity="N", stopbits=1, timeout=0.05, write_timeout=1.0
+            port, BAUD, bytesize=8, parity="N", stopbits=1, timeout=0.05, write_timeout=1.0, **extra
         )
+
+    def _drain(self) -> None:
+        """Wait for the line to go quiet, so a late reply is not taken as the next one."""
+        end = time.monotonic() + LATE_REPLY_S
+        quiet_since = time.monotonic()
+        while time.monotonic() < end and time.monotonic() - quiet_since < QUIET_S:
+            if self._serial.read(256):
+                quiet_since = time.monotonic()
+        self._late = False
 
     def transact(self, request: bytes) -> bytes:
         s = self._serial
+        if self._late:
+            self._drain()
         s.reset_input_buffer()
         s.write(request)
         s.flush()
@@ -103,6 +120,7 @@ class SerialTransport:
             if want is not None and n <= 0:
                 return reply
             reply += s.read(n)
+        self._late = True
         got = self.noise + reply
         raise NoReply(f"no reply from the pack on {self.port}" + (f" (got {got.hex(' ').upper()})" if got else ""))
 
