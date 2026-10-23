@@ -5,13 +5,18 @@ from __future__ import annotations
 from ...block import Area
 
 STRIDE = 2
+# Each area holds the registers this build uses. A pack answers a read with its
+# own block, whatever end the request names: a real one sent 208 bytes for
+# 0x1800-0x1900, 44 for 0x2810-0x2840 and 162 for 0x1000-0x10A0.
 LIVE = Area(0x1000, 0x50, STRIDE)  # 0x1000-0x10A0
-PROTECTION = Area(0x1800, 0x80, STRIDE)  # 0x1800-0x1900
-PACK = Area(0x1C00, 0x50, STRIDE)  # 0x1C00-0x1CA0
-CAPACITY = Area(0x2000, 0x28, STRIDE)  # 0x2000-0x2050 (the V1 app's range)
-CLOCK = Area(0x2800, 8, STRIDE)  # Y M D h m s, then 2 spare
-VERSION = Area(0x2810, 0x18, STRIDE)  # 0x2810-0x2840
+PROTECTION = Area(0x1800, 0x68, STRIDE)  # 0x1800-0x18D0: groups a-r, all a real pack sends
+PACK = Area(0x1C00, 0x47, STRIDE)  # 0x1C00-0x1C8E: through the fan temperatures
+CAPACITY = Area(0x2000, 0x20, STRIDE)  # 0x2000-0x2040: through the function bits
+CLOCK = Area(0x2800, 6, STRIDE)  # Y M D h m s
+VERSION = Area(0x2810, 0x16, STRIDE)  # 0x2810-0x283C, all a real pack sends
 AREAS = (PROTECTION, PACK, CAPACITY, CLOCK, VERSION)
+# The end address each block read names: the stock app's ranges, so the pack sees the requests it knows.
+REQUEST_ENDS = {0x1000: 0x10A0, 0x1800: 0x1900, 0x1C00: 0x1CA0, 0x2000: 0x2050, 0x2800: 0x280F, 0x2810: 0x2840}
 
 REG_SIGNALS = 0x1022  # live signal word; bit 15 = large-capacity mode
 LARGE_CAPACITY = 1 << 15

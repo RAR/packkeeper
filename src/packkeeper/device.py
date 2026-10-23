@@ -86,7 +86,7 @@ class ModbusDevice:
                 last = e
                 continue
             try:
-                return self.framing.parse_read(request, reply)
+                return self.framing.parse_read(request, reply)[:count]
             except DeviceRefused:
                 raise
             except FrameError as e:
@@ -96,14 +96,18 @@ class ModbusDevice:
         raise last
 
     def read_area(self, area, retries: int = READ_RETRIES) -> list[int]:
-        """One area, in FC03 reads of at most MAX_READ registers."""
+        """One area, in reads of at most framing.max_read registers."""
         area = Area(*area)
         out: list[int] = []
         step = self.framing.max_read
         for i in range(0, area.count, step):
-            out += self.read(area.start + i * area.stride, min(step, area.count - i), retries)
-        if len(out) != area.count:
-            raise FrameError(f"0x{area.start:02X}: the device sent {len(out)} registers, expected {area.count}")
+            n = min(step, area.count - i)
+            got = self.read(area.start + i * area.stride, n, retries)
+            if len(got) < n:
+                raise FrameError(
+                    f"0x{area.start:02X}: the device sent {i + len(got)} registers, expected {area.count}"
+                )
+            out += got
         return out
 
     def read_block(self) -> Block:

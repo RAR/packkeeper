@@ -195,13 +195,20 @@ addr | func | start (BE16) | end (BE16) | len (BE16) | data[len] | CRC16-Modbus 
 
 ### Areas (all stride 2)
 
-| Area | Start | Registers | Notes |
-|---|---|---|---|
-| protection | 0x1800 | 128 | read 0x1800–0x1900 |
-| pack | 0x1C00 | 80 | 0x1C00–0x1CA0 |
-| capacity | 0x2000 | 40 | 0x2000–0x2050; the V1 app's range, so older firmware answers |
-| clock | 0x2800 | 8 | Y, M, D, h, m, s as u16, full year; the last two registers are kept raw |
-| version | 0x2810 | 24 | 0x2810–0x2840 |
+| Area | Start | Registers | Request names | Notes |
+|---|---|---|---|---|
+| protection | 0x1800 | 104 | 0x1800–0x1900 | a real pack sends 208 bytes (to 0x18D0) |
+| pack | 0x1C00 | 71 | 0x1C00–0x1CA0 | through the fan temperatures at 0x1C8C |
+| capacity | 0x2000 | 32 | 0x2000–0x2050 | through the function bits at 0x203E |
+| clock | 0x2800 | 6 | 0x2800–0x280F | Y, M, D, h, m, s as u16, full year |
+| version | 0x2810 | 22 | 0x2810–0x2840 | a real pack sends 44 bytes (to 0x283C) |
+
+Revised 2026-10-23 after the first real-pack session: the pack answers a
+block read with its own block length, whatever end the request names. It
+sent 208 bytes for 0x1800–0x1900, 44 for 0x2810–0x2840 and 162 for
+0x1000–0x10A0. Requests name the stock app's ranges; replies of any length
+are accepted, as the app does; an area is refused only when the reply is
+shorter than the registers it holds, and extra registers are dropped.
 
 Live data: one read of 0x1000–0x10A0 (80 registers).
 

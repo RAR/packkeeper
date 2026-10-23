@@ -56,6 +56,8 @@ WORDS = {
 TEXTS = {0x281C: ("JBD-UP16S010", 16), 0x282C: ("ECOWORTHY48V", 16)}
 CLOCK = datetime(2026, 10, 23, 8, 0, 0)
 DEFAULT_FLOORS = {0x1C06: 20}  # keeps the old balance delta below 0.020 V, like a pack might
+# Where a block read ends, whatever end the request names: the lengths a real pack sent.
+SENDS = {0x1000: 0x10A2, 0x1800: 0x18D0, 0x2810: 0x283C}
 
 
 def _text(s: str, nbytes: int) -> list[int]:
@@ -116,6 +118,7 @@ class FakeJbd:
             self.mem[R.REG_SIGNALS] |= R.LARGE_CAPACITY
         self.floors = DEFAULT_FLOORS if floors is None else floors
         self.writes: list[tuple[int, list[int]]] = []
+        self.sends = dict(SENDS)
         self.blank = False
         self.state_file = state_file
         self._clock_base: tuple[datetime, datetime] | None = None
@@ -141,6 +144,7 @@ class FakeJbd:
         addr, fn, start, end, n = struct.unpack(">BBHHH", request[:8])
         if fn == FN_READ:
             self._clock_now()
+            end = self.sends.get(start, end)
             words = [0 if self.blank and R.PROTECTION.start <= a < 0x1900 else self.word(a) for a in range(start, end, 2)]
             data = b"".join(struct.pack(">H", w) for w in words)
             return with_crc(struct.pack(">BBHHH", addr, fn, start, end, len(data)) + data)

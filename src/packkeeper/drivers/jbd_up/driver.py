@@ -42,7 +42,7 @@ class JbdUp(Driver):
     _writable = frozenset(TABLE.covering)
 
     def new_framing(self):
-        return JbdFraming()
+        return JbdFraming(request_ends=R.REQUEST_ENDS)
 
     def is_writable(self, register: int) -> bool:
         return register in self._writable
@@ -80,7 +80,8 @@ class JbdUp(Driver):
     def check_device(self, device, block: Block) -> str | None:
         device.framing.key = self.key_of(block)
         try:
-            (signals,) = device.read(R.REG_SIGNALS, 1, retries=READ_RETRIES)
+            # The whole live block, as the stock app reads it: a pack answers block reads.
+            signals = device.read_area(R.LIVE, retries=READ_RETRIES)[(R.REG_SIGNALS - R.LIVE.start) // 2]
         except (NoReply, FrameError, DeviceRefused) as e:
             return f"could not read the pack's capacity mode ({e})"
         if signals & R.LARGE_CAPACITY:

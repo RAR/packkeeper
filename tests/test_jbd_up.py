@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from packkeeper.drivers.jbd_up.framing import DEFAULT_KEY, JbdError, JbdFraming
@@ -32,11 +34,13 @@ def test_parse_read_and_reply_length():
     for bad in (
         r[:-1] + bytes([r[-1] ^ 1]),  # CRC
         reply(3, 0x78, 0x1800, 0x1804, bytes(4)),  # address
-        reply(2, 0x78, 0x1802, 0x1806, bytes(4)),  # range
-        reply(2, 0x78, 0x1800, 0x1804, bytes(2)),  # short
+        reply(2, 0x78, 0x1802, 0x1806, bytes(4)),  # start
     ):
         with pytest.raises(JbdError):
             F.parse_read(req, bad)
+    # Any length is accepted, as the stock app does; read_area judges whether it is enough.
+    assert F.parse_read(req, reply(2, 0x78, 0x1800, 0x1804, bytes.fromhex("0E10"))) == [0x0E10]
+    assert F.parse_read(req, reply(2, 0x78, 0x1800, 0x1900, bytes(6))) == [0, 0, 0]
 
 
 def test_parse_write_ack_and_resync():
@@ -269,3 +273,77 @@ def test_apply_plan_refuses_a_forged_unsafe_change():
     with pytest.raises(ValueError, match="unsafe setting"):
         apply_plan(dev, p)
     assert sim.writes == []
+
+
+REAL_FRAMES = Path(__file__).parent / "jbd_up_real_frames.txt"
+
+
+def real_frames() -> dict[bytes, bytes]:
+    pairs = {}
+    for line in REAL_FRAMES.read_text().splitlines():
+        if line and not line.startswith("#"):
+            req, rep = line.split("|")
+            pairs[bytes.fromhex(req)] = bytes.fromhex(rep)
+    return pairs
+
+
+class ReplayTransport:
+    """Answers only the requests captured from the real pack, byte for byte."""
+
+    def __init__(self):
+        self.frames = real_frames()
+
+    def transact(self, request: bytes) -> bytes:
+        if request not in self.frames:
+            raise NoReply(f"not captured: {request.hex(' ')}")
+        return self.frames[request]
+
+
+def test_real_pack_requests_are_the_ones_it_answered():
+    from packkeeper.drivers.jbd_up import DRIVER, registers as R
+
+    f = DRIVER.new_framing()
+    sent = {f.read_request(2, a.start, a.count) for a in (R.VERSION, R.PROTECTION, R.LIVE)}
+    assert sent == set(real_frames())
+
+
+def test_real_pack_replies_fill_their_areas():
+    from packkeeper.drivers.jbd_up import DRIVER, registers as R
+
+    dev = DRIVER.open_device(ReplayTransport(), SessionLog(), 2)
+    version = dev.read_area(R.VERSION)  # 44 bytes sent for a 48-byte request
+    protection = dev.read_area(R.PROTECTION)  # 208 for 256
+    live_regs = dev.read_area(R.LIVE)  # 162 for 160
+    assert (len(version), len(protection), len(live_regs)) == (R.VERSION.count, R.PROTECTION.count, R.LIVE.count)
+    assert version[(R.REG_PROTOCOL - R.VERSION.start) // 2] == 0x0026
+    assert protection[3] == 3600  # cell OV protection, mV
+    rt = DRIVER.decode_live(live_regs)
+    assert rt.pack_voltage == 53.96 and rt.current == 2.25 and rt.cell_count == 16 and rt.cycles == 84
+
+
+def test_find_sees_a_pack_that_sends_a_short_version_block():
+    from packkeeper.drivers.jbd_up import DRIVER
+    from packkeeper.drivers.jbd_up.sim import FakeJbd, FakeJbdBus
+    from packkeeper.find import scan
+
+    found = scan(DRIVER, FakeJbdBus([FakeJbd(address=2, serial="REAL-LENGTHS")]), DRIVER.find_addresses, SessionLog())
+    assert [(f.address, f.serial) for f in found] == [(2, "REAL-LENGTHS")]
+
+
+def test_sim_answers_with_the_real_pack_block_lengths():
+    from packkeeper.drivers.jbd_up import DRIVER, registers as R
+    from packkeeper.drivers.jbd_up.sim import FakeJbd
+
+    sim, f = FakeJbd(address=2), DRIVER.new_framing()
+    for area, sent in ((R.VERSION, 44), (R.PROTECTION, 208), (R.LIVE, 162)):
+        assert sim.transact(f.read_request(2, area.start, area.count))[6:8] == sent.to_bytes(2, "big")
+
+
+def test_a_reply_too_short_for_its_area_is_refused():
+    from packkeeper.drivers.jbd_up import registers as R
+    from packkeeper.errors import FrameError
+
+    sim, dev = jbd()
+    sim.sends[R.PACK.start] = R.PACK.start + 2 * R.PACK.count - 2  # one register short
+    with pytest.raises(FrameError, match="0x1C00"):
+        dev.read_area(R.PACK)
