@@ -13,6 +13,7 @@ from .transport import NoReply
 
 if TYPE_CHECKING:
     from .drivers.base import Driver
+    from .settings import Setting
 
 READ_RETRIES = 3
 MAX_READ = 125  # FC03 limit
@@ -30,11 +31,12 @@ class PackError(Exception):
 class Device(Protocol):
     driver: "Driver"
     log: SessionLog
+    address: int
 
     def read_area(self, area, retries: int = READ_RETRIES) -> list[int]: ...
     def read_block(self) -> Block: ...
     def read_live(self, retries: int = READ_RETRIES) -> Live: ...
-    def write_setting(self, register: int, raw: int) -> bool: ...
+    def write_setting(self, setting: "Setting", raw: int) -> bool: ...
     def write_clock(self, t: datetime) -> bool: ...
     def close(self) -> None: ...
 
@@ -104,14 +106,15 @@ class ModbusDevice:
             regs += self.read_area(area, retries)
         return self.driver.decode_live(regs)
 
-    def write_setting(self, register: int, raw: int) -> bool:
-        """One FC16 single-register write. True if acked, False if no ack.
+    def write_setting(self, setting: "Setting", raw: int) -> bool:
+        """One FC16 write covering the whole setting. True if acked, False if no ack.
 
         The ack proves nothing: callers must re-read the block to confirm.
         """
-        if not self.driver.is_writable(register):
-            raise PackError(f"refusing to write 0x{register:02X}: not a writable settings register")
-        return self._write(register, [raw])
+        for r in setting.registers:
+            if not self.driver.is_writable(r):
+                raise PackError(f"refusing to write 0x{r:02X}: not a writable settings register")
+        return self._write(setting.register, setting.encode(raw))
 
     def write_clock(self, t: datetime) -> bool:
         if not self.driver.supports_clock:

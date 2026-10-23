@@ -92,12 +92,13 @@ class Driver:
         """A block from one register list per area (a single list for one area)."""
         return Block(self, tuple(tuple(a) for a in areas))
 
-    def write_frame(self, register: int, raw: int) -> bytes:
-        return modbus.write_request(self.address, register, [raw])
+    def write_frame(self, setting, raw: int, address: int | None = None) -> bytes:
+        """The FC16 frame that writes `setting` (all of its registers) to `raw`."""
+        return modbus.write_request(self.address if address is None else address, setting.register, setting.encode(raw))
 
-    def clock_frame(self, t: datetime) -> bytes:
+    def clock_frame(self, t: datetime, address: int | None = None) -> bytes:
         register, values = self.clock_write(t)
-        return modbus.write_request(self.address, register, values)
+        return modbus.write_request(self.address if address is None else address, register, values)
 
     def open_device(self, transport, log):
         from ..device import ModbusDevice

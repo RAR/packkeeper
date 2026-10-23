@@ -126,7 +126,7 @@ def test_plan_takes_rules_from_the_block_driver():
 
 def test_dry_run_frames_use_the_driver():
     p = make_plan(REF, {"cell_overvoltage_warning": 3650})
-    assert p.frames() == [EG4_LL.write_frame(0x43, 3650)]
+    assert p.frames() == [EG4_LL.write_frame(EG4_LL.table["cell_overvoltage_warning"], 3650)]
 
 
 def test_cli_bms_option(tmp_path, capsys):
@@ -253,10 +253,12 @@ def test_apply_plan_refuses_a_forged_change_to_a_non_writable_register():
 
 
 def test_toy_device_refuses_to_write_a_non_writable_register():
+    import dataclasses
+
     from packkeeper.device import PackError
     sim, dev = toy_device()
     with pytest.raises(PackError):
-        dev.write_setting(0x100, 1)
+        dev.write_setting(dataclasses.replace(TOY.table["low_cut"], register=0x100), 1)
     assert sim.writes == []
 
 

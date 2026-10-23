@@ -1,4 +1,4 @@
-"""Turn target values into a checked, safely ordered list of single-register writes.
+"""Turn target values into a checked, safely ordered list of setting writes.
 
 A plan is made against a parameter block read from the pack moments before.
 It is refused (plan.errors) if any new value breaks LIMITS, if the resulting
@@ -64,9 +64,9 @@ class Plan:
     def result(self) -> Block:
         return self.base.with_raws({c.register: c.new for c in self.changes})
 
-    def frames(self) -> list[bytes]:
+    def frames(self, address: int | None = None) -> list[bytes]:
         d = self.base.driver
-        return [d.write_frame(c.register, c.new) for c in self.changes]
+        return [d.write_frame(c.setting, c.new, address) for c in self.changes]
 
 
 def make_plan(
@@ -93,8 +93,9 @@ def make_plan(
         if s is None:
             plan.errors.append(f"unknown setting '{key}'")
             continue
-        if not base.driver.is_writable(s.register):
-            plan.errors.append(f"{s.label}: register 0x{s.register:02X} is not writable")
+        blocked = [r for r in s.registers if not base.driver.is_writable(r)]
+        if blocked:
+            plan.errors.append(f"{s.label}: register 0x{blocked[0]:02X} is not writable")
             continue
         if raw == current[key]:
             continue

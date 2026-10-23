@@ -69,9 +69,9 @@ def register_diff(a: Block, b: Block) -> list[int]:
     return [r for r in ra if ra[r] != rb[r]]
 
 
-def describe_register(table: SettingTable, reg: int, raw: int) -> str:
-    s = table.by_register.get(reg)
-    return f"{s.label} = {s.format(raw)}" if s else f"unknown register 0x{reg:02X} = {raw}"
+def describe_register(block: Block, reg: int) -> str:
+    s = block.driver.table.covering.get(reg)
+    return f"{s.label} = {s.format(block.raw(s.key))}" if s else f"unknown register 0x{reg:02X} = {block.reg(reg)}"
 
 
 def apply_plan(
@@ -86,17 +86,18 @@ def apply_plan(
             f"this plan is for {_a(plan.base.driver.label)} BMS and the connected device is {_a(pack.driver.label)}"
         )
     for change in plan.changes:
-        if not pack.driver.is_writable(change.register):
-            raise ValueError(
-                f"refusing to apply the plan: 0x{change.register:02X} is not a writable register "
-                f"on the {pack.driver.label}; nothing was written"
-            )
+        for r in change.setting.registers:
+            if not pack.driver.is_writable(r):
+                raise ValueError(
+                    f"refusing to apply the plan: 0x{r:02X} is not a writable register "
+                    f"on the {pack.driver.label}; nothing was written"
+                )
     table = plan.base.driver.table
 
     now = pack.read_block()
     changed = register_diff(plan.base, now)
     if changed:
-        what = ", ".join(describe_register(table, r, now.reg(r)) for r in changed)
+        what = ", ".join(dict.fromkeys(describe_register(now, r) for r in changed))
         log.error(f"pack changed since the diff was made: {what}")
         raise StaleError(
             f"the pack's settings changed since the diff was made ({what}). "
@@ -111,7 +112,7 @@ def apply_plan(
         result.status = UNVERIFIED
         try:
             try:
-                result.acked = pack.write_setting(change.register, change.new)
+                result.acked = pack.write_setting(change.setting, change.new)
             except DeviceRefused as e:
                 result.acked = False
                 log.warn(f"the pack refused {change.describe()}: {e}; reading back to see what it holds")
@@ -132,17 +133,22 @@ def apply_plan(
             return out
 
         final = block
-        result.reported = block.reg(change.register)
+        result.reported = block.raw(change.key)
         result.status = CONFIRMED if result.reported == change.new else NOT_APPLIED
         expected = expected.with_raws({change.register: change.new})
-        others = [r for r in register_diff(expected, block) if r != change.register]
+        others = [r for r in register_diff(expected, block) if r not in change.setting.registers]
         if progress:
             progress(i, len(results), result)
         log.result(result.describe())
         if others:
-            unexpected = [
-                f"{describe_register(table, r, block.reg(r))} (expected {expected.reg(r)} raw)" for r in others
-            ]
+
+            def expected_text(r: int, expected: Block = expected) -> str:
+                s = table.covering.get(r)
+                return f"{s.format(expected.raw(s.key))}" if s and s.width > 1 else f"{expected.reg(r)} raw"
+
+            unexpected = list(
+                dict.fromkeys(f"{describe_register(block, r)} (expected {expected_text(r)})" for r in others)
+            )
             out = ApplyResult(
                 results, block, stopped="other registers changed unexpectedly", unexpected=unexpected
             )
@@ -219,5 +225,5 @@ def diff_blocks(a: Block, b: Block) -> tuple[list[DiffRow], list[int]]:
     a.same_driver(b)
     table = a.driver.table
     rows = [DiffRow(k, a.raw(k), b.raw(k), s) for k, s in table.items() if a.raw(k) != b.raw(k)]
-    unknown = [r for r in register_diff(a, b) if r not in table.by_register]
+    unknown = [r for r in register_diff(a, b) if r not in table.covering]
     return rows, unknown

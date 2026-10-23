@@ -118,3 +118,48 @@ def test_eg4_still_reads_its_block_in_one_frame():
     dev.read_block()
     tx = [line.split(None, 2)[2] for line in dev.log.lines if line.split(None, 2)[1] == "TX"]
     assert tx == ["01 03 00 2D 00 5B 94 38"]
+
+
+from packkeeper.planner import make_plan  # noqa: E402
+from packkeeper.service import CONFIRMED, NOT_APPLIED, apply_plan  # noqa: E402
+
+
+def test_a_wide_setting_is_one_fc16_frame():
+    _sim, dev = wide_device()
+    p = make_plan(dev.read_block(), {"amps": 120000})
+    assert p.ok, p.errors
+    (frame,) = p.frames()
+    assert frame[:7] == bytes([9, 0x10, 0x02, 0x02, 0x00, 0x02, 0x04])
+    assert frame[7:11] == bytes([0x00, 0x01, 0xD4, 0xC0])  # 120000 = 0x0001D4C0, high word first
+    assert p.frames(address=3)[0][0] == 3
+
+
+def test_wide_write_is_confirmed_by_read_back():
+    sim, dev = wide_device()
+    res = apply_plan(dev, make_plan(dev.read_block(), {"cold": -100}))
+    assert res.ok and res.results[0].status == CONFIRMED and res.results[0].reported == -100
+    assert sim.writes == [(0x206, [0xFFFF, 0xFF9C])]
+
+
+def test_wide_write_dropped_on_the_low_word_is_not_applied():
+    sim, dev = wide_device(floors={0x204: 0xF000})
+    res = apply_plan(dev, make_plan(dev.read_block(), {"amps": 120000}))
+    assert res.results[0].status == NOT_APPLIED and res.stopped
+
+
+def test_planner_and_device_check_every_register_of_a_setting():
+    import dataclasses
+
+    from packkeeper.device import PackError
+    from packkeeper.planner import Change
+
+    sim, dev = wide_device()
+    s = WIDE.table["amps"]
+    forged = dataclasses.replace(s, register=0x208)  # covers 0x208 (writable) and 0x20A (not)
+    with pytest.raises(PackError, match="0x20A"):
+        dev.write_setting(forged, 1000)
+    plan = make_plan(dev.read_block(), {"amps": 120000})
+    plan.changes.append(Change(forged, 0, 1000))
+    with pytest.raises(ValueError, match="0x20A"):
+        apply_plan(dev, plan)
+    assert sim.writes == []

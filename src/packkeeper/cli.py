@@ -357,7 +357,7 @@ def run_write(pack: ModbusDevice, targets: dict[str, int], source_name: str, arg
 
     if args.dry_run:
         print("\nDry run. Frames that would be sent (each followed by a full read-back):")
-        for c, frame in zip(plan.changes, plan.frames()):
+        for c, frame in zip(plan.changes, plan.frames(pack.address)):
             print(f"  {frame.hex(' ').upper()}   {c.setting.label}")
             pack.log.info(f"dry run frame {frame.hex(' ').upper()}")
         return 0
@@ -418,7 +418,7 @@ def cmd_clock(args) -> int:
             raise CliError("use --set 'YYYY-MM-DD HH:MM:SS'") from None
     else:
         target = now
-    frame = driver.clock_frame(target)
+    frame = driver.clock_frame(target, pack.address)
     print(f"\nSet the BMS clock to {target.replace(microsecond=0)}  (frame {frame.hex(' ').upper()})")
     if args.dry_run:
         print("Dry run: nothing written.")

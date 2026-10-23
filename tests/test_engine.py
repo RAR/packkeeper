@@ -1,3 +1,4 @@
+import dataclasses
 import time
 from datetime import datetime
 from decimal import Decimal
@@ -351,7 +352,7 @@ def test_pack_refuses_non_threshold_writes():
     from packkeeper.device import PackError
     for reg in (0x2D, 0x2E, 0x69, 0x7F, 0x88):
         with pytest.raises(PackError):
-            pack.write_setting(reg, 1)
+            pack.write_setting(dataclasses.replace(EG4_LL.table["cell_overvoltage_warning"], register=reg), 1)
     assert sim.writes == []
 
 

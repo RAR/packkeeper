@@ -253,7 +253,7 @@ class ReviewDialog(QDialog):
         head = QLabel(
             f"<b>Pack:</b> {plan.base.model} &nbsp; <b>Firmware:</b> {plan.base.firmware} &nbsp; "
             f"<b>Source:</b> {source_name}<br>"
-            "These values were just read from the pack. Writes go out one register at a time in the order "
+            "These values were just read from the pack. Writes go out one setting at a time in the order "
             "below, and the whole parameter block is read back after each one."
         )
         head.setWordWrap(True)
@@ -293,7 +293,7 @@ class ReviewDialog(QDialog):
         self.frames.setReadOnly(True)
         self.frames.setFont(QFont("Menlo" if sys.platform == "darwin" else "Consolas" if os.name == "nt" else "Monospace"))
         self.frames.setPlainText(
-            "\n".join(f"{fr.hex(' ').upper()}   {c.setting.label}" for c, fr in zip(plan.changes, plan.frames()))
+            "\n".join(f"{fr.hex(' ').upper()}   {c.setting.label}" for c, fr in zip(plan.changes, plan.frames(main.pack.address if main.pack else None)))
         )
         self.frames.setVisible(False)
         self.frames.setMaximumHeight(140)
@@ -450,7 +450,7 @@ class ClockTab(QWidget):
 
     def set_clock(self):
         now = datetime.now().replace(microsecond=0)
-        frame = self.main.pack.driver.clock_frame(now).hex(" ").upper()
+        frame = self.main.pack.driver.clock_frame(now, self.main.pack.address).hex(" ").upper()
         if self.dry.isChecked():
             self.main.log.info(f"dry run frame {frame}")
             self.result.setText(f"Dry run. Would send <code>{frame}</code> (time {now}). Nothing was written.")
