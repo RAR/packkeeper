@@ -266,7 +266,7 @@ class ReviewDialog(QDialog):
             msgs.append(f"<p style='color:{BAD.name()}'><b>Refused:</b> {e}</p>")
         for w in plan.warnings:
             msgs.append(f"<p style='color:{WARN.name()}'><b>Warning:</b> {w}</p>")
-        if main.pack and main.pack.address == 0 and plan.ok and not plan.empty:
+        if main.pack and main.pack.address == main.pack.driver.broadcast_address and plan.ok and not plan.empty:
             msgs.append(f"<p style='color:{BAD.name()}'><b>Warning:</b> {BROADCAST_WARNING}</p>")
         for n in plan.notes:
             msgs.append(f"<p><b>Note:</b> {n}</p>")
@@ -297,7 +297,7 @@ class ReviewDialog(QDialog):
         self.frames.setReadOnly(True)
         self.frames.setFont(QFont("Menlo" if sys.platform == "darwin" else "Consolas" if os.name == "nt" else "Monospace"))
         self.frames.setPlainText(
-            "\n".join(f"{fr.hex(' ').upper()}   {c.setting.label}" for c, fr in zip(plan.changes, plan.frames(main.pack.address if main.pack else None)))
+            "\n".join(f"{fr.hex(' ').upper()}   {c.setting.label}" for c, fr in zip(plan.changes, plan.frames(main.pack.address if main.pack else None, main.pack.framing if main.pack else None)))
         )
         self.frames.setVisible(False)
         self.frames.setMaximumHeight(140)
@@ -454,13 +454,13 @@ class ClockTab(QWidget):
 
     def set_clock(self):
         now = datetime.now().replace(microsecond=0)
-        frame = self.main.pack.driver.clock_frame(now, self.main.pack.address).hex(" ").upper()
+        frame = self.main.pack.driver.clock_frame(now, self.main.pack.address, self.main.pack.framing).hex(" ").upper()
         if self.dry.isChecked():
             self.main.log.info(f"dry run frame {frame}")
             self.result.setText(f"Dry run. Would send <code>{frame}</code> (time {now}). Nothing was written.")
             return
         question = f"Set the pack's clock to this computer's time ({now})?"
-        if self.main.pack.address == 0:
+        if self.main.pack.address == self.main.pack.driver.broadcast_address:
             question += f"\n\n{BROADCAST_WARNING}"
         ok = QMessageBox.question(
             self, "Set BMS clock", question,
@@ -703,7 +703,7 @@ class MainWindow(QMainWindow):
             else:
                 from .transport import SerialTransport
 
-                transport = SerialTransport(device, params=driver.serial)
+                transport = SerialTransport(device, params=driver.serial, framing=driver.framing)
         except Exception as e:  # noqa: BLE001
             self.log.error(f"cannot open {device}: {e}")
             QMessageBox.critical(self, "Cannot open port", f"Cannot open {device}:\n{e}")

@@ -13,6 +13,7 @@ from pathlib import Path
 from . import __version__, backup, drivers
 from .block import BlankBlockError, Block, DriverMismatch
 from .device import BROADCAST_WARNING, ModbusDevice, PackError
+from .errors import FrameError
 from .modbus import ModbusError
 from .planner import Plan, identity_warnings, make_plan, targets_from_block
 from .service import NOT_ATTEMPTED, UNVERIFIED, StaleError, apply_plan, diff_blocks, set_clock
@@ -56,7 +57,7 @@ def main(argv: list[str] | None = None) -> int:
     except NoReply as e:
         print(f"error: {e}\n\n{driver_of(args).connection_help}", file=sys.stderr)
         return 3
-    except (CliError, BlankBlockError, backup.BackupError, SettingError, PackError, ModbusError, StaleError, DriverMismatch, drivers.UnknownDriver) as e:
+    except (CliError, BlankBlockError, backup.BackupError, SettingError, PackError, ModbusError, FrameError, StaleError, DriverMismatch, drivers.UnknownDriver) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
     except OSError as e:  # includes serial.SerialException: adapter unplugged, folder not writable
@@ -166,7 +167,7 @@ def open_pack(args, near: Path | None = None) -> ModbusDevice:
         if not port:
             raise CliError("no port given and no single USB serial port found; use --port (see 'packkeeper ports')")
         try:
-            transport = SerialTransport(port, params=driver.serial)
+            transport = SerialTransport(port, params=driver.serial, framing=driver.framing)
         except Exception as e:  # serial.SerialException and OS errors
             raise CliError(f"cannot open {port}: {e}") from None
         name = port
@@ -369,7 +370,7 @@ def run_write(pack: ModbusDevice, targets: dict[str, int], source_name: str, arg
 
     if args.dry_run:
         print("\nDry run. Frames that would be sent (each followed by a full read-back):")
-        for c, frame in zip(plan.changes, plan.frames(pack.address)):
+        for c, frame in zip(plan.changes, plan.frames(pack.address, pack.framing)):
             print(f"  {frame.hex(' ').upper()}   {c.setting.label}")
             pack.log.info(f"dry run frame {frame.hex(' ').upper()}")
         return 0
@@ -416,7 +417,7 @@ def run_write(pack: ModbusDevice, targets: dict[str, int], source_name: str, arg
 
 
 def warn_broadcast(pack: ModbusDevice) -> None:
-    if pack.address == 0:
+    if pack.address == pack.driver.broadcast_address:
         pack.log.warn(BROADCAST_WARNING)
         print(f"\nWARNING: {BROADCAST_WARNING}")
 
@@ -439,7 +440,7 @@ def cmd_clock(args) -> int:
             raise CliError("use --set 'YYYY-MM-DD HH:MM:SS'") from None
     else:
         target = now
-    frame = driver.clock_frame(target, pack.address)
+    frame = driver.clock_frame(target, pack.address, pack.framing)
     print(f"\nSet the BMS clock to {target.replace(microsecond=0)}  (frame {frame.hex(' ').upper()})")
     if args.dry_run:
         print("Dry run: nothing written.")

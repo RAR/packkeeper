@@ -8,8 +8,8 @@ from datetime import datetime
 from functools import cached_property
 from pathlib import Path
 
-from .. import modbus
 from ..block import Area, Block, Identity
+from ..framing import MODBUS
 from ..layout import Page
 from ..live import Live
 from ..settings import SettingTable
@@ -29,12 +29,9 @@ class Profile:
 class Driver:
     """One BMS family: its settings table, block layout, texts and simulator.
 
-    The defaults assume Modbus RTU: write_frame, clock_frame, open_device
-    (which returns ModbusDevice) and live_reads. A non-Modbus BMS overrides
-    open_device to return its own Device. That device's read_block() must call
-    block.check_not_blank() before returning, and its write_setting must
-    refuse registers where driver.is_writable is false. It also overrides
-    write_frame and clock_frame for dry-run output.
+    Frames come from `framing` (Modbus RTU by default). A BMS with another
+    wire protocol sets `framing` and, if the framing holds session state,
+    overrides `new_framing`.
     """
 
     name: str  # CLI --bms value and backup "bms" field, e.g. "eg4-ll"
@@ -44,6 +41,8 @@ class Driver:
     serial: SerialParams = SerialParams()
     address: int = 1
     address_choices: range | None = None  # None: always at `address`
+    framing = MODBUS  # the wire protocol; new_framing() gives each device its own state
+    broadcast_address: int | None = 0  # an address every device on the bus obeys, or None
     pages: tuple[Page, ...] = ()
     live_reads: tuple[Area | tuple[int, int], ...] = ()  # Area (or (start, count)) reads, concatenated for decode_live
     supports_clock: bool = False
@@ -102,13 +101,18 @@ class Driver:
         """A block from one register list per area (a single list for one area)."""
         return Block(self, tuple(tuple(a) for a in areas))
 
-    def write_frame(self, setting, raw: int, address: int | None = None) -> bytes:
-        """The FC16 frame that writes `setting` (all of its registers) to `raw`."""
-        return modbus.write_request(self.address if address is None else address, setting.register, setting.encode(raw))
+    def new_framing(self):
+        """The framing for one device session (the shared one when it holds no state)."""
+        return self.framing
 
-    def clock_frame(self, t: datetime, address: int | None = None) -> bytes:
+    def write_frame(self, setting, raw: int, address: int | None = None, framing=None) -> bytes:
+        """The frame that writes `setting` (all of its registers) to `raw`."""
+        f = framing or self.framing
+        return f.write_request(self.address if address is None else address, setting.register, setting.encode(raw))
+
+    def clock_frame(self, t: datetime, address: int | None = None, framing=None) -> bytes:
         register, values = self.clock_write(t)
-        return modbus.write_request(self.address if address is None else address, register, values)
+        return (framing or self.framing).write_request(self.address if address is None else address, register, values)
 
     def open_device(self, transport, log, address: int | None = None):
         from ..device import ModbusDevice

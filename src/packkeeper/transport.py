@@ -11,8 +11,6 @@ import sys
 import time
 from dataclasses import dataclass
 
-from . import modbus
-
 
 @dataclass(frozen=True)
 class SerialParams:
@@ -78,20 +76,19 @@ def resync(buf: bytes, address: int, function: int) -> tuple[bytes, bytes]:
     Returns (the buffer from a plausible frame start, the dropped bytes). A
     line settling or a stray byte must not make every retry fail the same way.
     """
-    ok_functions = (function, function | modbus.EXCEPTION_FLAG)
-    i = 0
-    while i < len(buf):
-        if buf[i] == address and (i + 1 >= len(buf) or buf[i + 1] in ok_functions):
-            break
-        i += 1
-    return buf[i:], buf[:i]
+    from .framing import MODBUS
+
+    return MODBUS.resync(buf, bytes([address, function]))
 
 
 class SerialTransport:
-    def __init__(self, port: str, timeout: float = REPLY_TIMEOUT_S, params: SerialParams = SerialParams()):  # noqa: B008 - frozen
+    def __init__(self, port: str, timeout: float = REPLY_TIMEOUT_S, params: SerialParams = SerialParams(), framing=None):  # noqa: B008 - frozen
         import serial
 
+        from .framing import MODBUS
+
         self.port = port
+        self.framing = framing or MODBUS
         self.timeout = timeout
         self.noise = b""  # bytes dropped before the last reply
         self._late = False  # the last request timed out: its reply may still arrive
@@ -122,10 +119,10 @@ class SerialTransport:
         deadline = time.monotonic() + self.timeout
         reply = b""
         while time.monotonic() < deadline:
-            reply, dropped = resync(reply, request[0], request[1])
+            reply, dropped = self.framing.resync(reply, request)
             self.noise += dropped
-            want = modbus.expected_reply_length(reply)
-            n = (want - len(reply)) if want is not None else 3 - len(reply)
+            want = self.framing.reply_length(reply)
+            n = (want - len(reply)) if want is not None else self.framing.head_len - len(reply)
             if want is not None and n <= 0:
                 return reply
             reply += s.read(n)

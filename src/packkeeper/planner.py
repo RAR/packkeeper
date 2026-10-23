@@ -64,9 +64,9 @@ class Plan:
     def result(self) -> Block:
         return self.base.with_raws({c.register: c.new for c in self.changes})
 
-    def frames(self, address: int | None = None) -> list[bytes]:
+    def frames(self, address: int | None = None, framing=None) -> list[bytes]:
         d = self.base.driver
-        return [d.write_frame(c.setting, c.new, address) for c in self.changes]
+        return [d.write_frame(c.setting, c.new, address, framing) for c in self.changes]
 
 
 def make_plan(

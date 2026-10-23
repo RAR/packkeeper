@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import struct
 
-from .errors import DeviceRefused
+from .errors import DeviceRefused, FrameError
 
 FC_READ = 0x03
 FC_WRITE = 0x10
 EXCEPTION_FLAG = 0x80
+MAX_READ = 125  # FC03 limit
 
 EXCEPTION_NAMES = {
     1: "illegal function",
@@ -24,7 +25,7 @@ EXCEPTION_NAMES = {
 }
 
 
-class ModbusError(Exception):
+class ModbusError(FrameError):
     """A reply that is malformed, mismatched or a Modbus exception."""
 
 
@@ -54,7 +55,7 @@ def crc_ok(frame: bytes) -> bool:
 
 
 def read_request(address: int, start: int, count: int) -> bytes:
-    if not 1 <= count <= 125:
+    if not 1 <= count <= MAX_READ:
         raise ValueError(f"FC03 count {count} out of range")
     return with_crc(struct.pack(">BBHH", address, FC_READ, start, count))
 

@@ -1,4 +1,4 @@
-"""Talking to one device: reads, single-register writes, every frame logged."""
+"""Talking to one device: reads, writes, every frame logged."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Protocol
 
 from . import modbus
 from .block import Area, Block
+from .errors import DeviceRefused, FrameError
 from .live import Live
 from .session import SessionLog
 from .transport import NoReply
@@ -16,7 +17,7 @@ if TYPE_CHECKING:
     from .settings import Setting
 
 READ_RETRIES = 3
-MAX_READ = 125  # FC03 limit
+MAX_READ = modbus.MAX_READ  # FC03 limit
 BROADCAST_WARNING = (
     "Address 0 is the Modbus broadcast address: every pack on the bus takes this write. "
     "Make sure the link cables are unplugged."
@@ -56,6 +57,7 @@ class ModbusDevice:
         elif address != driver.address and (driver.address_choices is None or address not in driver.address_choices):
             raise ValueError(f"the {driver.label} cannot be reached at address {address}")
         self.address = address
+        self.framing = driver.new_framing()
         self.write_refusal: str | None = None
 
     def _transact(self, request: bytes) -> bytes:
@@ -65,7 +67,7 @@ class ModbusDevice:
         except NoReply as e:
             self.log.warn(str(e))
             raise
-        except modbus.ModbusError as e:
+        except FrameError as e:
             self.log.warn(f"bad reply: {e}")
             raise
         noise = getattr(self.transport, "noise", b"")
@@ -75,19 +77,19 @@ class ModbusDevice:
         return reply
 
     def read(self, start: int, count: int, retries: int = READ_RETRIES) -> list[int]:
-        request = modbus.read_request(self.address, start, count)
+        request = self.framing.read_request(self.address, start, count)
         last: Exception | None = None
         for _ in range(retries):
             try:
                 reply = self._transact(request)  # logs its own failures
-            except (NoReply, modbus.ModbusError) as e:
+            except (NoReply, FrameError) as e:
                 last = e
                 continue
             try:
-                return modbus.parse_read_reply(request, reply)
-            except modbus.ModbusException:
+                return self.framing.parse_read(request, reply)
+            except DeviceRefused:
                 raise
-            except modbus.ModbusError as e:
+            except FrameError as e:
                 last = e
                 self.log.warn(f"bad reply: {e}")
         assert last is not None
@@ -97,8 +99,11 @@ class ModbusDevice:
         """One area, in FC03 reads of at most MAX_READ registers."""
         area = Area(*area)
         out: list[int] = []
-        for i in range(0, area.count, MAX_READ):
-            out += self.read(area.start + i * area.stride, min(MAX_READ, area.count - i), retries)
+        step = self.framing.max_read
+        for i in range(0, area.count, step):
+            out += self.read(area.start + i * area.stride, min(step, area.count - i), retries)
+        if len(out) != area.count:
+            raise FrameError(f"0x{area.start:02X}: the device sent {len(out)} registers, expected {area.count}")
         return out
 
     def read_block(self) -> Block:
@@ -106,7 +111,7 @@ class ModbusDevice:
         d = self.driver
         try:
             block = d.block(*(self.read_area(a) for a in d.areas))
-        except modbus.ModbusException as e:
+        except DeviceRefused as e:
             if not d.read_error_hint:
                 raise
             self.log.warn(d.read_error_hint)
@@ -150,14 +155,14 @@ class ModbusDevice:
         return self._write(register, values)
 
     def _write(self, register: int, values: list[int]) -> bool:
-        request = modbus.write_request(self.address, register, values)
+        request = self.framing.write_request(self.address, register, values)
         try:
-            modbus.parse_write_reply(request, self._transact(request))
+            self.framing.parse_write(request, self._transact(request))
         except NoReply:
             return False
-        except modbus.ModbusException:
+        except DeviceRefused:
             raise
-        except modbus.ModbusError as e:
+        except FrameError as e:
             self.log.warn(f"bad ack: {e}")
             return False
         return True
