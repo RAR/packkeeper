@@ -124,3 +124,25 @@ def test_plan_takes_rules_from_the_block_driver():
 def test_dry_run_frames_use_the_driver():
     p = make_plan(REF, {"cell_overvoltage_warning": 3650})
     assert p.frames() == [EG4_LL.write_frame(0x43, 3650)]
+
+
+def test_cli_bms_option(tmp_path, capsys):
+    from eg4tool.cli import main
+    assert main(["keys", "--bms", "eg4-ll"]) == 0
+    assert "cell_overvoltage_protection" in capsys.readouterr().out
+    assert main(["info", "--simulate", "--bms", "eg4-ll", "--log-dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "ZTR-16S200A" in out and "SOC 67%" in out
+
+
+def test_cli_rejects_unknown_bms(capsys):
+    from eg4tool.cli import main
+    with pytest.raises(SystemExit):
+        main(["keys", "--bms", "nope"])
+    assert "nope" in capsys.readouterr().err
+
+
+def test_cli_profile_names_come_from_the_driver(tmp_path, capsys):
+    from eg4tool.cli import main
+    assert main(["diff", "--profile", "nope", "--simulate", "--log-dir", str(tmp_path)]) == 2
+    assert "eg4-shipped" in capsys.readouterr().err

@@ -4,27 +4,28 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
 
 from . import __version__, backup, drivers
-from .block import BlankBlockError, Block
+from .block import BlankBlockError, Block, DriverMismatch
 from .device import ModbusDevice, PackError
 from .modbus import ModbusError
 from .planner import Plan, identity_warnings, make_plan, targets_from_block
 from .service import NOT_ATTEMPTED, UNVERIFIED, StaleError, apply_plan, diff_blocks, set_clock
 from .session import SessionLog, default_log_path
-from .settings import LINKED_PAIRS, SETTINGS, SettingError
+from .settings import SettingError, SettingTable
 from .transport import NoReply, guess_port, list_ports
 
-DRIVER = drivers.get(drivers.DEFAULT)  # Task 4 replaces this with --bms
+def driver_of(args):
+    return drivers.get(getattr(args, "bms", None) or drivers.DEFAULT)
 
-ONE_PACK_NOTE = (
-    "One pack at a time: unplug the link cables from the pack's paralleling ports, then plug "
-    "the USB-RS232 adapter into its right-most paralleling port. The DIP ID does not matter."
-)
+
+def plain(html: str) -> str:
+    return re.sub(r"<[^>]+>", "", html)
 
 
 class CliError(Exception):
@@ -52,9 +53,9 @@ def main(argv: list[str] | None = None) -> int:
         print("\ninterrupted", file=sys.stderr)
         return 130
     except NoReply as e:
-        print(f"error: {e}\n\n{DRIVER.connection_help}", file=sys.stderr)
+        print(f"error: {e}\n\n{driver_of(args).connection_help}", file=sys.stderr)
         return 3
-    except (CliError, BlankBlockError, backup.BackupError, SettingError, PackError, ModbusError, StaleError) as e:
+    except (CliError, BlankBlockError, backup.BackupError, SettingError, PackError, ModbusError, StaleError, DriverMismatch, drivers.UnknownDriver) as e:
         print(f"error: {e}", file=sys.stderr)
         return 2
     except OSError as e:  # includes serial.SerialException: adapter unplugged, folder not writable
@@ -65,11 +66,13 @@ def main(argv: list[str] | None = None) -> int:
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="eg4tool",
-        description="Back up, compare and restore EG4-LL pack protection settings over the "
-        "right-most paralleling port (RS232). " + ONE_PACK_NOTE,
+        description="Back up, compare and restore BMS protection settings, one pack at a time. Supported: "
+        + ", ".join(d.label for d in drivers.DRIVERS.values()) + ".",
     )
     p.add_argument("--version", action="version", version=f"eg4tool {__version__}")
     common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--bms", choices=sorted(drivers.DRIVERS), default=drivers.DEFAULT,
+                        help="BMS type (default: %(default)s)")
     common.add_argument("-p", "--port", help="serial port (default: the only USB serial port, or $EG4TOOL_PORT)")
     common.add_argument("--simulate", action="store_true", help="use a built-in fake pack instead of a serial port")
     common.add_argument("--sim-state", type=Path, metavar="FILE", help="with --simulate: keep the fake pack's registers in FILE")
@@ -94,7 +97,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("diff", parents=[common], help="compare the pack with a backup or a profile")
     g = s.add_mutually_exclusive_group(required=True)
     g.add_argument("file", nargs="?", type=Path)
-    g.add_argument("--profile", choices=sorted(DRIVER.profiles))
+    g.add_argument("--profile", help="a built-in profile (see 'eg4tool keys --profiles')")
     s.set_defaults(func=cmd_diff)
 
     s = sub.add_parser("set", parents=[common, write], help="change one setting (KEY VALUE, repeatable)")
@@ -104,7 +107,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("restore", parents=[common, write], help="write a backup or a profile to the pack")
     g = s.add_mutually_exclusive_group(required=True)
     g.add_argument("file", nargs="?", type=Path)
-    g.add_argument("--profile", choices=sorted(DRIVER.profiles))
+    g.add_argument("--profile", help="a built-in profile (see 'eg4tool keys --profiles')")
     s.add_argument("--skip", default="", help="comma-separated setting keys to leave alone")
     s.set_defaults(func=cmd_restore)
 
@@ -126,7 +129,10 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_live)
 
     s = sub.add_parser("keys", help="list setting keys, units and safe ranges")
+    s.add_argument("--bms", choices=sorted(drivers.DRIVERS), default=drivers.DEFAULT,
+                   help="BMS type (default: %(default)s)")
     s.add_argument("-F", "--fahrenheit", action="store_true")
+    s.add_argument("--profiles", action="store_true", help="list the built-in profiles instead")
     s.set_defaults(func=cmd_keys)
 
     s = sub.add_parser("gui", help="open the desktop app")
@@ -137,10 +143,12 @@ def build_parser() -> argparse.ArgumentParser:
 # --- connection ------------------------------------------------------------
 
 def open_pack(args, near: Path | None = None) -> ModbusDevice:
+    driver = driver_of(args)
     log_dir = Path(args.log_dir) if args.log_dir else (near.resolve().parent if near else None)
     log = SessionLog(default_log_path(log_dir))
+    log.info(f"BMS type {driver.label}")
     if args.simulate:
-        transport = DRIVER.simulator(state_file=args.sim_state)
+        transport = driver.simulator(state_file=args.sim_state)
         name = "simulated pack"
     else:
         from .transport import SerialTransport
@@ -149,13 +157,13 @@ def open_pack(args, near: Path | None = None) -> ModbusDevice:
         if not port:
             raise CliError("no port given and no single USB serial port found; use --port (see 'eg4tool ports')")
         try:
-            transport = SerialTransport(port, params=DRIVER.serial)
+            transport = SerialTransport(port, params=driver.serial)
         except Exception as e:  # serial.SerialException and OS errors
             raise CliError(f"cannot open {port}: {e}") from None
         name = port
     log.info(f"port {name}")
     print(f"Port: {name}   Log: {log.path}")
-    return DRIVER.open_device(transport, log)
+    return driver.open_device(transport, log)
 
 
 # --- commands --------------------------------------------------------------
@@ -171,11 +179,17 @@ def cmd_ports(args) -> int:
 
 
 def print_identity(block: Block) -> None:
-    clock = block.clock
-    print(f"Model     {block.model}")
-    print(f"Firmware  {block.firmware}")
-    print(f"Serial    {block.serial}  (the same on every pack; does not identify it)")
-    print(f"BMS clock {clock if clock else f'invalid (0x{block.clock_raw:08X})'}")
+    ident = block.identity
+    print(f"BMS       {block.driver.label}")
+    print(f"Model     {ident.model}")
+    print(f"Firmware  {ident.firmware}")
+    if ident.serial:
+        print(f"Serial    {ident.serial}  (the same on every pack; does not identify it)")
+    if block.driver.supports_clock:
+        bad = f"invalid (0x{ident.clock_raw:08X})" if ident.clock_raw is not None else "invalid"
+        print(f"BMS clock {ident.clock or bad}")
+    for w in block.driver.identity_warnings(block):
+        print(f"warning: {w}")
 
 
 def cmd_info(args) -> int:
@@ -196,14 +210,17 @@ def cmd_backup(args) -> int:
     print_identity(block)
     backup.save(args.file, block, port=getattr(pack.transport, "port", None))
     pack.log.result(f"backup saved to {args.file}")
-    print(f"\nSaved {len(block.registers)} registers ({len(SETTINGS)} settings, "
+    print(f"\nSaved {len(block.registers)} registers ({len(block.driver.table)} settings, "
           f"{len(block.unknown_registers())} unknown kept) to {args.file}")
     return 0
 
 
 def load_source(args) -> tuple[Block, str]:
     if getattr(args, "profile", None):
-        prof = DRIVER.profiles[args.profile]
+        profiles = driver_of(args).profiles
+        if args.profile not in profiles:
+            raise CliError(f"unknown profile '{args.profile}' (known: {', '.join(sorted(profiles))})")
+        prof = profiles[args.profile]
         return prof.block, prof.label
     b = backup.load(args.file)
     return b.block, f"{args.file} ({b.created})"
@@ -234,18 +251,18 @@ def cmd_diff(args) -> int:
     return 1
 
 
-def parse_pairs(pairs: list[str], fahrenheit: bool) -> dict[str, int]:
+def parse_pairs(pairs: list[str], fahrenheit: bool, table: SettingTable) -> dict[str, int]:
     if len(pairs) % 2:
         raise CliError("give settings as KEY VALUE pairs (see 'eg4tool keys')")
     out: dict[str, int] = {}
     for key, value in zip(pairs[::2], pairs[1::2]):
-        s = SETTINGS.get(key)
+        s = table.get(key)
         if s is None:
-            near = [k for k in SETTINGS if key.lower() in k]
+            near = [k for k in table if key.lower() in k]
             raise CliError(f"unknown setting '{key}'" + (f"; did you mean: {', '.join(near[:6])}" if near else ""))
         out[key] = s.parse(value, fahrenheit)
     # The two registers whose mapping is unsettled move together.
-    for a, b in LINKED_PAIRS:
+    for a, b in table.linked:
         if a in out and b not in out:
             out[b] = out[a]
         elif b in out and a not in out:
@@ -254,14 +271,15 @@ def parse_pairs(pairs: list[str], fahrenheit: bool) -> dict[str, int]:
 
 
 def cmd_set(args) -> int:
-    targets = parse_pairs(args.pairs, args.fahrenheit)
+    table = driver_of(args).table
+    targets = parse_pairs(args.pairs, args.fahrenheit, table)
     pack = open_pack(args)
     return run_write(pack, targets, "command line", args)
 
 
-def skip_set(text: str) -> set[str]:
+def skip_set(text: str, table: SettingTable) -> set[str]:
     keys = {k.strip() for k in text.split(",") if k.strip()}
-    bad = keys - set(SETTINGS)
+    bad = keys - set(table)
     if bad:
         raise CliError(f"unknown setting(s) in --skip: {', '.join(sorted(bad))}")
     return keys
@@ -270,22 +288,22 @@ def skip_set(text: str) -> set[str]:
 def cmd_restore(args) -> int:
     source, name = load_source(args)
     pack = open_pack(args, near=args.file)
-    return run_write(pack, targets_from_block(source, skip_set(args.skip)), name, args, source=source)
+    return run_write(pack, targets_from_block(source, skip_set(args.skip, driver_of(args).table)), name, args, source=source)
 
 
 def cmd_copy(args) -> int:
-    skip = skip_set(args.skip)
+    driver = driver_of(args)
+    skip = skip_set(args.skip, driver.table)
     pack = open_pack(args, near=args.save)
-    print(f"\n{ONE_PACK_NOTE}\n")
-    confirm_enter("Plug the adapter into the SOURCE pack's right-most paralleling port, then press Enter")
+    print(f"\n{plain(driver.connect_note_html)}\n")
+    confirm_enter(f"Set up the SOURCE pack ({driver.setup_hint}), then press Enter")
     source = pack.read_block()
     print_identity(source)
-    save = args.save or Path(f"eg4-source-{datetime.now():%Y%m%d-%H%M%S}.json")
+    save = args.save or Path(f"{driver.name}-source-{datetime.now():%Y%m%d-%H%M%S}.json")
     backup.save(save, source, port=getattr(pack.transport, "port", None))
     pack.log.result(f"source backup saved to {save}")
     print(f"Source saved to {save}\n")
-    confirm_enter("Move the adapter to the TARGET pack (link cables unplugged, adapter in its "
-                  "right-most paralleling port), then press Enter")
+    confirm_enter(f"Move the adapter to the TARGET pack ({driver.setup_hint}), then press Enter")
     return run_write(pack, targets_from_block(source, skip), f"source pack ({save})", args, source=source)
 
 
@@ -317,7 +335,7 @@ def run_write(pack: ModbusDevice, targets: dict[str, int], source_name: str, arg
     f = args.fahrenheit
     block = pack.read_block()
     print_identity(block)
-    plan = make_plan(block, targets, fahrenheit=f)
+    plan = make_plan(block, targets, fahrenheit=f, source=source)
     if source is not None:
         plan.warnings[:0] = identity_warnings(block, source, "the source")
     print(f"\nSource: {source_name}")
@@ -385,7 +403,10 @@ def cmd_clock(args) -> int:
     pack = open_pack(args)
     block = pack.read_block()
     now = datetime.now(timezone.utc).replace(tzinfo=None) if args.utc else datetime.now()
-    print(f"BMS clock: {block.clock or 'invalid'}")
+    driver = pack.driver
+    if not driver.supports_clock:
+        raise CliError(f"the {driver.label} has no clock")
+    print(f"BMS clock: {block.identity.clock or 'invalid'}")
     print(f"This computer: {now.replace(microsecond=0)}{' UTC' if args.utc else ' (local)'}")
     if not (args.now or args.set):
         return 0
@@ -396,7 +417,7 @@ def cmd_clock(args) -> int:
             raise CliError("use --set 'YYYY-MM-DD HH:MM:SS'") from None
     else:
         target = now
-    frame = DRIVER.clock_frame(target)
+    frame = driver.clock_frame(target)
     print(f"\nSet the BMS clock to {target.replace(microsecond=0)}  (frame {frame.hex(' ').upper()})")
     if args.dry_run:
         print("Dry run: nothing written.")
@@ -428,9 +449,14 @@ def cmd_live(args) -> int:
 
 
 def cmd_keys(args) -> int:
+    driver = driver_of(args)
+    if args.profiles:
+        for name, prof in driver.profiles.items():
+            print(f"{name:20s} {prof.label}")
+        return 0
     f = args.fahrenheit
     group = None
-    for key, s in SETTINGS.items():
+    for key, s in driver.table.items():
         if s.group != group:
             group = s.group
             print(f"\n{group}")
