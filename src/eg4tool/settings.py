@@ -1,11 +1,8 @@
-"""Setting definitions, value encoding and the write rules.
+"""Setting definitions, value encoding and the write rules, for any BMS.
 
-The tables come from settings_table.py, vendored unchanged from
-esphome-eg4-bms (components/eg4_bms/settings_table.py), so the component and
-this tool share one source of truth. Anything this tool adds on top is here.
-
-All checks run on raw register values. Values in units are Decimals so that
-step checks and degF conversion are exact.
+A driver builds a SettingTable from its own register map. All checks run on
+raw register values. Values in units are Decimals so that step checks and
+degF conversion are exact.
 """
 
 from __future__ import annotations
@@ -13,53 +10,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal, Inexact, InvalidOperation, localcontext
 from fractions import Fraction
-
-from . import settings_table
-
-REG_BLOCK = 0x2D  # parameter block FC03 0x2D x91, 0x2D-0x87
-BLOCK_COUNT = 0x5B
-REG_BLOCK_LAST = REG_BLOCK + BLOCK_COUNT - 1
-REG_CLOCK = 0x2D  # packed clock, 0x2D-0x2E, high word first
-
-
-def is_threshold_register(reg: int) -> bool:
-    """Writable thresholds: not the clock (0x2D-0x2E), not identity (0x69-0x7F)."""
-    return 0x2F <= reg <= 0x68 or 0x80 <= reg <= REG_BLOCK_LAST
-
-
-# Tightened on top of the vendored LIMITS. The pack acks a balance delta below
-# its floor and keeps the old value (0.010 V acked, 0.039 V kept; 0.020 V held).
-LIMIT_OVERRIDES = {
-    "balance_delta_voltage": (0.020, 0.1, 0.001),
-}
-
-# settings_table.py has 0x52 = short circuit and 0x54 = discharge OC 2;
-# REGISTER_MAP.md says the reverse. Both ship as 300 A, so no read tells them
-# apart. Until a deliberate test settles it, they are only set together, to
-# the same value.
-LINKED_PAIRS = [("short_circuit_current", "discharge_overcurrent_2_protection")]
-
-GROUPS = [
-    ("Balancing", ("balance_", "low_capacity")),
-    ("Cell voltage", ("cell_",)),
-    ("Pack voltage", ("pack_",)),
-    ("Charge current", ("charge_overcurrent",)),
-    ("Discharge current", ("discharge_overcurrent", "short_circuit")),
-    ("Charge temperature", ("charge_under", "charge_over")),
-    ("Discharge temperature", ("discharge_under", "discharge_over")),
-    ("MOSFET temperature", ("mos_",)),
-    ("Ambient temperature", ("ambient_",)),
-    ("Heater", ("heater_",)),
-]
-
-_WORDS = {
-    "overvoltage": "OV",
-    "undervoltage": "UV",
-    "overcurrent": "OC",
-    "overtemp": "OT",
-    "undertemp": "UT",
-    "mos": "MOSFET",
-}
+from typing import Callable, Iterable, Iterator
 
 
 class SettingError(ValueError):
@@ -187,43 +138,6 @@ def f_to_c_exact(f: Decimal, label: str = "temperature") -> Decimal:
     return Decimal(c.numerator)
 
 
-def _group(key: str) -> str:
-    for name, prefixes in GROUPS:
-        if key.startswith(prefixes):
-            return name
-    return "Other"
-
-
-def _label(key: str) -> str:
-    words = [_WORDS.get(w, w) for w in key.split("_")]
-    text = " ".join(words)
-    return text[0].upper() + text[1:]
-
-
-def _build() -> dict[str, Setting]:
-    out = {}
-    for key, (reg, mult, offset, unit, _cls, decimals) in settings_table.SETTINGS.items():
-        lo, hi, step = LIMIT_OVERRIDES.get(key, settings_table.LIMITS[key])
-        out[key] = Setting(
-            key=key,
-            register=reg,
-            multiplier=_dec(mult),
-            offset=_dec(offset),
-            unit=unit,
-            decimals=decimals,
-            minimum=_dec(lo),
-            maximum=_dec(hi),
-            step=_dec(step),
-            group=_group(key),
-            label=_label(key),
-        )
-    return out
-
-
-SETTINGS: dict[str, Setting] = _build()
-BY_REGISTER: dict[int, Setting] = {s.register: s for s in SETTINGS.values()}
-
-
 @dataclass(frozen=True)
 class Rule:
     lower: str
@@ -234,33 +148,141 @@ class Rule:
         lo, hi = raw[self.lower], raw[self.upper]
         return lo < hi if self.strict else lo <= hi
 
-    def describe(self, raw: dict[str, int] | None = None, fahrenheit: bool = False) -> str:
-        lo, hi = SETTINGS[self.lower], SETTINGS[self.upper]
-        rel = "below" if self.strict else "at or below"
+
+@dataclass(frozen=True)
+class LinkedPair:
+    """Two settings that may only be set together, to the same value."""
+
+    a: str
+    b: str
+    reason: str
+
+    def __iter__(self) -> Iterator[str]:
+        return iter((self.a, self.b))
+
+
+def default_label(key: str) -> str:
+    text = key.replace("_", " ")
+    return text[0].upper() + text[1:]
+
+
+class SettingTable:
+    """One BMS's settings, the order rules between them and the linked pairs."""
+
+    def __init__(self, settings: dict[str, Setting], order: list[Rule], linked: list[LinkedPair]):
+        for r in order:
+            for k in (r.lower, r.upper):
+                if k not in settings:
+                    raise ValueError(f"order rule names unknown setting '{k}'")
+        for p in linked:
+            for k in p:
+                if k not in settings:
+                    raise ValueError(f"linked pair names unknown setting '{k}'")
+        self.settings = settings
+        self.by_register: dict[int, Setting] = {s.register: s for s in settings.values()}
+        self.order = list(order)
+        self.linked = list(linked)
+        self.rank = self._ranks()
+
+    @classmethod
+    def build(
+        cls,
+        table: dict[str, tuple],
+        limits: dict[str, tuple],
+        order: Iterable[tuple[str, str, bool]],
+        linked: Iterable[LinkedPair] = (),
+        overrides: dict[str, tuple] | None = None,
+        group: Callable[[str], str] | None = None,
+        label: Callable[[str], str] | None = None,
+    ) -> "SettingTable":
+        """From an esphome-style table: key -> (register, multiplier, offset, unit, class, decimals)."""
+        overrides = overrides or {}
+        settings = {}
+        for key, (reg, mult, offset, unit, _cls, decimals) in table.items():
+            lo, hi, step = overrides.get(key, limits[key])
+            settings[key] = Setting(
+                key=key,
+                register=reg,
+                multiplier=_dec(mult),
+                offset=_dec(offset),
+                unit=unit,
+                decimals=decimals,
+                minimum=_dec(lo),
+                maximum=_dec(hi),
+                step=_dec(step),
+                group=group(key) if group else "Settings",
+                label=label(key) if label else default_label(key),
+            )
+        return cls(settings, [Rule(lo, hi, strict) for lo, hi, strict in order], list(linked))
+
+    def _ranks(self) -> dict[str, int]:
+        """Height of each setting in the order graph (0 = nothing below it)."""
+        below: dict[str, list[str]] = {k: [] for k in self.settings}
+        for r in self.order:
+            below[r.upper].append(r.lower)
+        memo: dict[str, int] = {}
+
+        def rank(k: str) -> int:
+            if k not in memo:
+                memo[k] = 1 + max((rank(b) for b in below[k]), default=-1)
+            return memo[k]
+
+        return {k: rank(k) for k in self.settings}
+
+    def __getitem__(self, key: str) -> Setting:
+        return self.settings[key]
+
+    def __contains__(self, key: object) -> bool:
+        return key in self.settings
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self.settings)
+
+    def __len__(self) -> int:
+        return len(self.settings)
+
+    def get(self, key: str) -> Setting | None:
+        return self.settings.get(key)
+
+    def items(self):
+        return self.settings.items()
+
+    def pair(self, key: str) -> LinkedPair | None:
+        return next((p for p in self.linked if key in (p.a, p.b)), None)
+
+    def partner(self, key: str) -> str | None:
+        p = self.pair(key)
+        return None if p is None else (p.b if key == p.a else p.a)
+
+    def describe_rule(self, rule: Rule, raw: dict[str, int] | None = None, fahrenheit: bool = False) -> str:
+        lo, hi = self.settings[rule.lower], self.settings[rule.upper]
+        rel = "below" if rule.strict else "at or below"
         if raw is None:
             return f"{lo.label} must stay {rel} {hi.label}"
         return (
-            f"{lo.label} ({lo.format(raw[self.lower], fahrenheit)}) must stay {rel} "
-            f"{hi.label} ({hi.format(raw[self.upper], fahrenheit)})"
+            f"{lo.label} ({lo.format(raw[rule.lower], fahrenheit)}) must stay {rel} "
+            f"{hi.label} ({hi.format(raw[rule.upper], fahrenheit)})"
         )
 
 
-ORDER: list[Rule] = [Rule(lo, hi, strict) for lo, hi, strict in settings_table.ORDER]
+# Transitional: the EG4-LL names other modules still import. Removed in Task 6.
+_LEGACY = ("SETTINGS", "BY_REGISTER", "ORDER", "RANK", "LINKED_PAIRS", "TABLE")
 
 
-def _ranks() -> dict[str, int]:
-    """Height of each setting in the ORDER graph (0 = nothing below it)."""
-    below: dict[str, list[str]] = {k: [] for k in SETTINGS}
-    for r in ORDER:
-        below[r.upper].append(r.lower)
-    memo: dict[str, int] = {}
+def __getattr__(name: str):
+    if name in _LEGACY:
+        from .drivers.eg4_ll.table import TABLE
 
-    def rank(k: str) -> int:
-        if k not in memo:
-            memo[k] = 1 + max((rank(b) for b in below[k]), default=-1)
-        return memo[k]
+        return {
+            "SETTINGS": TABLE.settings,
+            "BY_REGISTER": TABLE.by_register,
+            "ORDER": TABLE.order,
+            "RANK": TABLE.rank,
+            "LINKED_PAIRS": TABLE.linked,
+            "TABLE": TABLE,
+        }[name]
+    if name in ("REG_BLOCK", "BLOCK_COUNT", "REG_BLOCK_LAST", "REG_CLOCK", "is_threshold_register"):
+        from .drivers.eg4_ll import registers
 
-    return {k: rank(k) for k in SETTINGS}
-
-
-RANK = _ranks()
+        return getattr(registers, {"is_threshold_register": "is_writable"}.get(name, name))
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

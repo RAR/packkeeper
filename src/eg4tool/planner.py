@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 
 from . import modbus
 from .block import Block
-from .settings import LINKED_PAIRS, ORDER, RANK, SETTINGS, Rule, Setting, is_threshold_register
+from .settings import LINKED_PAIRS, ORDER, RANK, SETTINGS, TABLE, Rule, Setting, is_threshold_register
 
 ADDRESS = 1
 
@@ -128,7 +128,7 @@ def make_plan(
         if not rule.holds(final):
             plan.problem_keys.update((rule.lower, rule.upper))
             already = "" if (rule.lower in wanted or rule.upper in wanted) else " (the pack already breaks this rule; include a fix for it)"
-            plan.errors.append(f"after these writes, {rule.describe(final, fahrenheit)}{already}")
+            plan.errors.append(f"after these writes, {TABLE.describe_rule(rule, final, fahrenheit)}{already}")
 
     for key, raw in current.items():
         if key not in wanted:
@@ -142,7 +142,7 @@ def make_plan(
     order, stuck = _order(current, wanted, rules)
     if stuck:
         blocked = "; ".join(
-            f"{SETTINGS[k].label} is blocked by: {', '.join(r.describe(current, fahrenheit) for r in rs)}"
+            f"{SETTINGS[k].label} is blocked by: {', '.join(TABLE.describe_rule(r, current, fahrenheit) for r in rs)}"
             for k, rs in stuck.items()
         )
         plan.errors.append(f"no write order keeps every step valid. {blocked}")
