@@ -234,6 +234,8 @@ def cmd_probe(args) -> int:
     for p in probes:
         head = " ".join(f"{w:04X}" for w in p.words[:8]) + (" ..." if len(p.words) > 8 else "")
         print(f"{p.label:<28} 0x{p.area.start:04X} x{p.area.count:<4} {p.outcome:<20} {head}".rstrip())
+    if pack.bus_chatter:
+        print(f"warning: {pack.bus_chatter}")
     if pack.log.path:
         print(f"Every frame is in {pack.log.path}")
     return 0 if any(p.ok for p in probes) else 1

@@ -111,6 +111,7 @@ class FakeJK(FakeModbusDevice):
             state_from=R.SETTINGS,
             stride=self.sim_stride,
             readable=served.__contains__ if refuse_outside else None,
+            max_read=R.MAX_READ,
         )
         self.clock_set = R.addr(R.COMMANDS, R.CLOCK_SET_OFFSET, self.sim_stride)
         self.clock_at = R.addr(R.LIVE, R.CLOCK_OFFSET, self.sim_stride)

@@ -32,6 +32,7 @@ class FakeModbusDevice:
         stride: int = 1,
         readable: Callable[[int], bool] | None = None,
         answer_to: int | None = None,
+        max_read: int | None = None,
     ):
         self.image = list(image)
         self.is_writable = is_writable
@@ -42,6 +43,7 @@ class FakeModbusDevice:
         self.stride = stride
         self.readable = readable
         self.answer_to = answer_to
+        self.max_read = max_read  # longer reads get exception 2
         self.drop_replies = 0  # next N requests get no reply
         self.drop_acks = 0  # next N writes are applied but not acked
         self.silent_after_write = 0  # after a write, ignore this many requests
@@ -72,6 +74,8 @@ class FakeModbusDevice:
         size = len(self.image)
         addrs = [start + i * self.stride for i in range(count)]
         bad = addrs[-1] >= size if addrs else True
+        if self.max_read is not None and function == modbus.FC_READ and count > self.max_read:
+            bad = True
         if not bad and self.readable is not None:
             bad = not all(self.readable(a) for a in addrs)
         if function == modbus.FC_READ:

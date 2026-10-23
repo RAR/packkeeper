@@ -22,6 +22,7 @@ OV_OFFSET = 0x0C  # cell over-voltage protection: the field check_device reads a
 CLOCK_OFFSET = 0x100  # RTC ticks in the live area, seconds since 2020-01-01
 CLOCK_SET_OFFSET = 0x12  # "time calibration" in the command area
 EPOCH = datetime(2020, 1, 1)
+MAX_READ = 100  # a real PB2A16S20P answered FC03 x100 and refused x125 with exception 2
 
 
 def addr(area: int, offset: int, stride: int = STRIDE) -> int:

@@ -18,6 +18,10 @@ if TYPE_CHECKING:
 
 READ_RETRIES = 3
 MAX_READ = modbus.MAX_READ  # FC03 limit
+BUS_CHATTER = (
+    "Another device is polling this RS485 line (it asked address {addresses}), so replies collide with it: "
+    "unplug the link cables so the adapter is the only thing on this pack's port."
+)
 BROADCAST_WARNING = (
     "Address 0 is the Modbus broadcast address: every pack on the bus takes this write. "
     "Make sure the link cables are unplugged."
@@ -38,6 +42,7 @@ class Device(Protocol):
     log: SessionLog
     address: int
     write_refusal: str | None
+    bus_chatter: str | None
 
     def read_area(self, area, retries: int = READ_RETRIES) -> list[int]: ...
     def read_block(self) -> Block: ...
@@ -59,6 +64,16 @@ class ModbusDevice:
         self.address = address
         self.framing = driver.new_framing()
         self.write_refusal: str | None = None
+        self.bus_chatter: str | None = None
+
+    def _heard(self) -> None:
+        """Warn once if the bytes around the last reply show another master on the line."""
+        if self.bus_chatter is not None:
+            return
+        others = modbus.foreign_requests(getattr(self.transport, "noise", b""), self.address)
+        if others:
+            self.bus_chatter = BUS_CHATTER.format(addresses=", ".join(map(str, others)))
+            self.log.warn(self.bus_chatter)
 
     def _transact(self, request: bytes) -> bytes:
         self.log.tx(request)
@@ -66,13 +81,16 @@ class ModbusDevice:
             reply = self.transport.transact(request)
         except NoReply as e:
             self.log.warn(str(e))
+            self._heard()
             raise
         except FrameError as e:
             self.log.warn(f"bad reply: {e}")
+            self._heard()
             raise
         noise = getattr(self.transport, "noise", b"")
         if noise:
             self.log.warn(f"discarded {len(noise)} byte(s) of line noise before the reply: {noise.hex(' ').upper()}")
+            self._heard()
         self.log.rx(reply)
         return reply
 

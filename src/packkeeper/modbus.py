@@ -125,3 +125,22 @@ def registers_of(frame: bytes) -> list[int]:
         raise ValueError("not a valid FC03 reply")
     data = frame[3:-2]
     return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
+
+
+def foreign_requests(data: bytes, address: int) -> list[int]:
+    """Addresses that CRC-valid FC03/FC16 requests in `data` are sent to, other than `address`:
+    bytes from another master polling the same line."""
+    found: list[int] = []
+    for i in range(len(data) - 7):
+        unit, function = data[i], data[i + 1]
+        if not 1 <= unit <= 247 or unit == address:
+            continue
+        if function == FC_READ:
+            n = 8
+        elif function == FC_WRITE and i + 6 < len(data):
+            n = 9 + data[i + 6]
+        else:
+            continue
+        if crc_ok(data[i : i + n]) and unit not in found:
+            found.append(unit)
+    return found

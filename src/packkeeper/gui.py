@@ -866,7 +866,8 @@ class MainWindow(QMainWindow):
             self.live_timer.stop()
             self.live.updated.setText(f"Live view paused: {err}. Click Read again on the Settings tab to retry.")
             if isinstance(err, NoReply):
-                self.status(f"The pack is not answering. {self.pack.driver.no_reply_hint}", error=True)
+                self.status(self.pack.bus_chatter or f"The pack is not answering. {self.pack.driver.no_reply_hint}",
+                            error=True)
             return
         block = self.settings.block
         if block is not None:

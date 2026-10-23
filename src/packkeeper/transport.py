@@ -128,6 +128,7 @@ class SerialTransport:
             reply += s.read(n)
         self._late = True
         got = self.noise + reply
+        self.noise = got  # everything heard, for spotting another master on the line
         raise NoReply(f"no reply from the pack on {self.port}" + (f" (got {got.hex(' ').upper()})" if got else ""))
 
     def close(self) -> None:

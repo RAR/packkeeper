@@ -8,6 +8,7 @@ from pathlib import Path
 from ...block import Area, Block, Identity, ascii_text
 from ...device import READ_RETRIES
 from ...errors import DeviceRefused
+from ...framing import ModbusFraming
 from ...modbus import ModbusError
 from ...transport import NoReply, SerialParams
 from ..base import Driver
@@ -22,10 +23,15 @@ FEATURES = {
 }
 
 
+class JkFraming(ModbusFraming):
+    max_read = R.MAX_READ
+
+
 class JkPB(Driver):
     name = "jk-pb"
     label = "JK-PB"
     serial = SerialParams(baud=115200)
+    framing = JkFraming()
     address = 1
     address_choices = range(0, 248)
     pages = PAGES

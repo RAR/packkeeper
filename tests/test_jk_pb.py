@@ -250,3 +250,55 @@ def test_cli_write_at_the_default_address_has_no_broadcast_warning(tmp_path, cap
     _yes(monkeypatch)
     assert main(["clock", "--bms", "jk-pb", "--simulate", "--log-dir", str(tmp_path), "--now"]) == 0
     assert "broadcast" not in capsys.readouterr().out
+
+
+def test_reads_stay_within_the_100_registers_a_real_pack_accepts():
+    # A real PB2A16S20P answered FC03 0x1000 x100 and refused x125 with exception 2.
+    sim = JK.simulator()
+    dev = JK.open_device(sim, SessionLog(), 1)
+    assert dev.framing.max_read == 100
+    assert sim.transact(dev.framing.read_request(1, 0x1000, 101))[1] == 0x83
+    seen = []
+    orig = sim.transact
+    sim.transact = lambda req: (seen.append(int.from_bytes(req[4:6], "big")), orig(req))[1]
+    dev.read_block()
+    assert seen and max(seen) <= 100
+
+
+# Heard on a real JK line while reading address 1: a master polling the other packs.
+POLLS = bytes.fromhex("06 10 16 20 00 01 02 00 00 F0 C1 01 10 16 20 00 01 02 00 00 D6 F1 55 AA EB 90 02 00 F6 0C")
+
+
+def test_finds_another_master_polling_the_line():
+    from packkeeper.modbus import foreign_requests
+
+    assert foreign_requests(POLLS, 1) == [6]  # address 1 is ours
+    assert foreign_requests(POLLS, 6) == [1]
+    assert foreign_requests(b"\x00\xff" * 20, 1) == []
+
+
+class ChattyLine:
+    """The simulated JK, with a master's polls heard around every reply."""
+
+    def __init__(self, sim, silent=False):
+        self.sim, self.silent, self.noise = sim, silent, b""
+
+    def transact(self, request: bytes) -> bytes:
+        from packkeeper.transport import NoReply
+
+        self.noise = POLLS
+        if self.silent:
+            raise NoReply("no reply from the pack on COM3")
+        return self.sim.transact(request)
+
+
+def test_a_busy_line_is_reported_once():
+    for silent in (False, True):
+        dev = JK.open_device(ChattyLine(JK.simulator(), silent), SessionLog(), 1)
+        try:
+            dev.read_block()
+        except Exception:
+            assert silent
+        warnings = [line for line in dev.log.lines if "Another device is polling" in line]
+        assert len(warnings) == 1 and "address 6" in warnings[0], dev.log.lines
+        assert dev.bus_chatter and "unplug the link cables" in dev.bus_chatter
