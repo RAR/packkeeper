@@ -11,6 +11,7 @@ SRC = Path(__file__).parent.parent / "src" / "eg4tool"
 
 def test_vendored_table_is_byte_for_byte_upstream():
     data = (SRC / "drivers" / "eg4_ll" / "settings_table.py").read_bytes()
+    data = data.replace(b"\r\n", b"\n")  # a Windows checkout may convert line endings
     assert hashlib.sha256(data).hexdigest() == VENDORED_SHA256
 
 
