@@ -12,6 +12,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from ...block import Area
+from ...settings import SettingError
 
 STRIDE = 2  # address step between 16-bit registers: 2 = byte addresses
 WORD_ORDER = "high_first"
@@ -43,7 +44,7 @@ def live_reads(stride: int) -> tuple[Area, ...]:
 def pack_clock(t: datetime) -> int:
     secs = int((t - EPOCH).total_seconds())
     if not 0 <= secs <= 0xFFFFFFFF:
-        raise ValueError(f"{t} does not fit the BMS clock (seconds since {EPOCH:%Y-%m-%d})")
+        raise SettingError(f"{t} does not fit the BMS clock (seconds since {EPOCH:%Y-%m-%d})")
     return secs
 
 
@@ -64,6 +65,10 @@ the link cables between packs. Also check:
 CONNECT_NOTE_HTML = (
     "<b>One pack at a time.</b> Unplug the link cables between packs, then plug the USB-RS485 adapter "
     "into one of the pack's RS485 ports. Set <b>Address</b> to the pack's DIP-switch address."
+)
+READ_ERROR_HINT = (
+    "A JK-PB that refuses this read may number its registers by word, not by byte as this build "
+    "expects; see the README's JK-PB section."
 )
 NO_REPLY_HINT = "Check the link cables are unplugged, A/B wiring, and the address (try 1, then 0)."
 SETUP_HINT = "link cables unplugged, adapter in one of its RS485 ports"

@@ -422,3 +422,45 @@ def test_gui_runs_jk_pb(window, monkeypatch):
     dlg.write_btn.click()
     wait(app, lambda: dlg.result is not None)
     assert dlg.result.ok and dlg.result.results[0].status == CONFIRMED
+
+
+def test_jk_pb_at_address_0_warns_about_broadcast(window, monkeypatch):
+    from PySide6.QtWidgets import QLabel
+
+    from packkeeper.device import BROADCAST_WARNING
+
+    app, w = window
+    w.bms.setCurrentIndex(w.bms.findData("jk-pb"))
+    w.address.setValue(0)
+    w.ports.setCurrentIndex(w.ports.findData(gui.SIM_PORT))
+    w.toggle_connect()
+    wait(app, lambda: w.settings.block is not None)
+    assert w.pack.address == 0
+    edit(w, "cell_ov_protection", "3.6")
+    wait(app, lambda: "cell_ov_protection" in w.settings.staged)
+    dlg = open_review(app, w, monkeypatch)
+    assert any(BROADCAST_WARNING in lbl.text() for lbl in dlg.findChildren(QLabel))
+    asked = []
+    monkeypatch.setattr(gui.QMessageBox, "question", lambda *a: (asked.append(a[2]), gui.QMessageBox.StandardButton.No)[1])
+    w.clock.set_clock()
+    assert asked and BROADCAST_WARNING in asked[0]
+    dlg.reject()
+
+
+def test_review_at_the_default_address_has_no_broadcast_warning(window, monkeypatch):
+    from PySide6.QtWidgets import QLabel
+
+    app, w = window
+    w.bms.setCurrentIndex(w.bms.findData("jk-pb"))
+    w.ports.setCurrentIndex(w.ports.findData(gui.SIM_PORT))
+    w.toggle_connect()
+    wait(app, lambda: w.settings.block is not None)
+    edit(w, "cell_ov_protection", "3.6")
+    wait(app, lambda: "cell_ov_protection" in w.settings.staged)
+    dlg = open_review(app, w, monkeypatch)
+    assert not any("broadcast" in lbl.text() for lbl in dlg.findChildren(QLabel))
+    asked = []
+    monkeypatch.setattr(gui.QMessageBox, "question", lambda *a: (asked.append(a[2]), gui.QMessageBox.StandardButton.No)[1])
+    w.clock.set_clock()
+    assert asked and "broadcast" not in asked[0]
+    dlg.reject()

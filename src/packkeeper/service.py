@@ -85,9 +85,8 @@ def apply_plan(
         raise DriverMismatch(
             f"this plan is for {_a(plan.base.driver.label)} BMS and the connected device is {_a(pack.driver.label)}"
         )
-    refusal = getattr(pack, "write_refusal", None)
-    if refusal:
-        raise PackError(f"writes are off: {refusal}; nothing was written")
+    if pack.write_refusal:
+        raise PackError(f"writes are off: {pack.write_refusal}; nothing was written")
     for change in plan.changes:
         for r in change.setting.registers:
             if not pack.driver.is_writable(r):
@@ -98,9 +97,8 @@ def apply_plan(
     table = plan.base.driver.table
 
     now = pack.read_block()
-    refusal = getattr(pack, "write_refusal", None)
-    if refusal:
-        raise PackError(f"writes are off: {refusal}; nothing was written")
+    if pack.write_refusal:
+        raise PackError(f"writes are off: {pack.write_refusal}; nothing was written")
     changed = register_diff(plan.base, now)
     if changed:
         what = ", ".join(dict.fromkeys(describe_register(now, r) for r in changed))
@@ -114,11 +112,32 @@ def apply_plan(
     final: Block | None = now
     log.info(f"applying {len(plan.changes)} write(s)")
     for i, (change, result) in enumerate(zip(plan.changes, results)):
+        rest = len(results) - i
+        if pack.write_refusal:  # set by the last read-back
+            out = ApplyResult(
+                results,
+                final,
+                stopped=f"writes were turned off after the last read-back ({pack.write_refusal}); "
+                f"the remaining {rest} write(s) were not sent",
+            )
+            _log_summary(log, out, table)
+            return out
         # From here on the frame may be on the wire: never report it as not sent.
         result.status = UNVERIFIED
         try:
             try:
                 result.acked = pack.write_setting(change.setting, change.new)
+            except PackError as e:  # write_setting refuses before sending: this frame never went out
+                result.status = NOT_ATTEMPTED
+                log.error(f"not sent: {change.describe()}: {e}")
+                out = ApplyResult(
+                    results,
+                    final,
+                    stopped=f"stopped at {change.setting.label}: {e}. That write was not sent"
+                    + (f"; the remaining {rest - 1} write(s) were not sent either" if rest > 1 else ""),
+                )
+                _log_summary(log, out, table)
+                return out
             except DeviceRefused as e:
                 result.acked = False
                 log.warn(f"the pack refused {change.describe()}: {e}; reading back to see what it holds")
@@ -163,12 +182,11 @@ def apply_plan(
             _log_summary(log, out, table)
             return out
         if result.status != CONFIRMED:
-            rest = len(results) - i - 1
             out = ApplyResult(
                 results,
                 block,
                 stopped=f"the pack did not store {change.setting.label}"
-                + (f"; the remaining {rest} write(s) were not sent" if rest else ""),
+                + (f"; the remaining {rest - 1} write(s) were not sent" if rest > 1 else ""),
             )
             _log_summary(log, out, table)
             return out
@@ -209,9 +227,8 @@ def set_clock(pack: Device, t: datetime) -> ClockResult:
     if not pack.driver.supports_clock:
         raise PackError(f"the {pack.driver.label} has no clock to set")
     before = pack.read_block().clock
-    refusal = getattr(pack, "write_refusal", None)
-    if refusal:
-        raise PackError(f"writes are off: {refusal}; nothing was written")
+    if pack.write_refusal:
+        raise PackError(f"writes are off: {pack.write_refusal}; nothing was written")
     t = t.replace(microsecond=0, tzinfo=None)
     pack.log.info(f"setting the BMS clock to {t}")
     acked = pack.write_clock(t)

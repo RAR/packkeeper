@@ -17,6 +17,10 @@ if TYPE_CHECKING:
 
 READ_RETRIES = 3
 MAX_READ = 125  # FC03 limit
+BROADCAST_WARNING = (
+    "Address 0 is the Modbus broadcast address: every pack on the bus takes this write. "
+    "Make sure the link cables are unplugged."
+)
 
 
 class Transport(Protocol):
@@ -100,7 +104,13 @@ class ModbusDevice:
     def read_block(self) -> Block:
         """The settings block; refuses a read the driver calls blank."""
         d = self.driver
-        block = d.block(*(self.read_area(a) for a in d.areas))
+        try:
+            block = d.block(*(self.read_area(a) for a in d.areas))
+        except modbus.ModbusException as e:
+            if not d.read_error_hint:
+                raise
+            self.log.warn(d.read_error_hint)
+            raise PackError(f"{e}. {d.read_error_hint}") from e
         reason = d.blank_reason(block)
         if reason:
             self.log.error(f"refusing this read: {reason}")

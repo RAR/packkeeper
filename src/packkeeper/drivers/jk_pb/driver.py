@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from ...block import Block, Identity, ascii_text
+from ...device import READ_RETRIES
 from ...errors import DeviceRefused
 from ...modbus import ModbusError
 from ...transport import NoReply, SerialParams
@@ -32,6 +33,7 @@ class JkPB(Driver):
     connect_note_html = R.CONNECT_NOTE_HTML
     connection_help = R.CONNECTION_HELP
     no_reply_hint = R.NO_REPLY_HINT
+    read_error_hint = R.READ_ERROR_HINT
     setup_hint = R.SETUP_HINT
     clock_note = R.CLOCK_NOTE
 
@@ -67,6 +69,7 @@ class JkPB(Driver):
         )
 
     def blank_reason(self, block: Block) -> str | None:
+        # Replaces the all-zero check on writable registers: the settings area holds every one of them.
         if not any(block.areas[0]):
             return R.BLANK_MESSAGE
         s = self.table["cell_ov_protection"]
@@ -91,7 +94,7 @@ class JkPB(Driver):
 
         def probe(address: int) -> list[int] | None:
             try:
-                return device.read(address, 2, retries=1)
+                return device.read(address, 2, retries=READ_RETRIES)
             except (DeviceRefused, NoReply, ModbusError):
                 return None
 

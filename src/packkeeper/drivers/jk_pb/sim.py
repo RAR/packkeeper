@@ -1,6 +1,7 @@
 """The simulated JK-PB: a plausible 16S LiFePO4 pack. Invented test data,
 not JK's defaults. Its stride and word order can differ from the driver's,
-to exercise the refusals."""
+to exercise the refusals; `refuse_outside` makes it answer exception 2 to
+addresses outside its settings, live and device areas and clock command."""
 
 from __future__ import annotations
 
@@ -41,6 +42,7 @@ class FakeJK(FakeModbusDevice):
         word_order: str = R.WORD_ORDER,
         floors: dict[int, int] | None = None,
         blank_thresholds: bool = False,
+        refuse_outside: bool = False,
         state_file: Path | None = None,
     ):
         self.sim_stride = driver.stride if stride is None else stride
@@ -94,6 +96,11 @@ class FakeJK(FakeModbusDevice):
 
         # What the pack accepts as settings, at its own addresses.
         self._writable = {R.addr(R.SETTINGS, FIELDS[k][0] + 2 * i, self.sim_stride) for k in FIELDS for i in range(2)}
+        served = {
+            R.addr(area, off, self.sim_stride)
+            for area, nbytes in ((R.SETTINGS, R.SETTINGS_BYTES), (R.LIVE, R.LIVE_BYTES), (R.DEVICE, R.DEVICE_BYTES))
+            for off in range(0, nbytes, 2)
+        } | {R.addr(R.COMMANDS, R.CLOCK_SET_OFFSET + off, self.sim_stride) for off in (0, 2)}
         low = R.addr(R.SETTINGS, FIELDS[FLOOR_KEY][0] + (2 if word_order == "high_first" else 0), self.sim_stride)
         super().__init__(
             image,
@@ -103,6 +110,7 @@ class FakeJK(FakeModbusDevice):
             state_file=state_file,
             state_from=R.SETTINGS,
             stride=self.sim_stride,
+            readable=served.__contains__ if refuse_outside else None,
         )
         self.clock_set = R.addr(R.COMMANDS, R.CLOCK_SET_OFFSET, self.sim_stride)
         self.clock_at = R.addr(R.LIVE, R.CLOCK_OFFSET, self.sim_stride)

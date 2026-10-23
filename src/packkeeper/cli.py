@@ -12,7 +12,7 @@ from pathlib import Path
 
 from . import __version__, backup, drivers
 from .block import BlankBlockError, Block, DriverMismatch
-from .device import ModbusDevice, PackError
+from .device import BROADCAST_WARNING, ModbusDevice, PackError
 from .modbus import ModbusError
 from .planner import Plan, identity_warnings, make_plan, targets_from_block
 from .service import NOT_ATTEMPTED, UNVERIFIED, StaleError, apply_plan, diff_blocks, set_clock
@@ -380,6 +380,7 @@ def run_write(pack: ModbusDevice, targets: dict[str, int], source_name: str, arg
     if pre:
         backup.save(pre, block, port=getattr(pack.transport, "port", None))
         print(f"\nThe pack's current settings were saved to {pre}")
+    warn_broadcast(pack)
     try:
         answer = input(f"\nType 'yes' to write {len(plan.changes)} setting(s) to this pack: ")
     except EOFError:
@@ -414,6 +415,12 @@ def run_write(pack: ModbusDevice, targets: dict[str, int], source_name: str, arg
     return 1
 
 
+def warn_broadcast(pack: ModbusDevice) -> None:
+    if pack.address == 0:
+        pack.log.warn(BROADCAST_WARNING)
+        print(f"\nWARNING: {BROADCAST_WARNING}")
+
+
 def cmd_clock(args) -> int:
     pack = open_pack(args)
     block = pack.read_block()
@@ -439,6 +446,7 @@ def cmd_clock(args) -> int:
         return 0
     if pack.write_refusal:
         raise PackError(f"writes are off: {pack.write_refusal}. Nothing was written.")
+    warn_broadcast(pack)
     if input("Type 'yes' to set the clock: ").strip().lower() != "yes":
         print("Nothing was written.")
         return 1

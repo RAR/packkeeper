@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
 
 from . import __version__, backup, drivers, qtcommon, settings_view
 from .block import Block
-from .device import ModbusDevice
+from .device import BROADCAST_WARNING, ModbusDevice
 from .live import Live
 from .planner import Plan, identity_warnings, make_plan
 from .qtcommon import APP_NAME, BAD, GOOD, WARN, error_text
@@ -266,6 +266,8 @@ class ReviewDialog(QDialog):
             msgs.append(f"<p style='color:{BAD.name()}'><b>Refused:</b> {e}</p>")
         for w in plan.warnings:
             msgs.append(f"<p style='color:{WARN.name()}'><b>Warning:</b> {w}</p>")
+        if main.pack and main.pack.address == 0 and plan.ok and not plan.empty:
+            msgs.append(f"<p style='color:{BAD.name()}'><b>Warning:</b> {BROADCAST_WARNING}</p>")
         for n in plan.notes:
             msgs.append(f"<p><b>Note:</b> {n}</p>")
         if msgs:
@@ -457,8 +459,11 @@ class ClockTab(QWidget):
             self.main.log.info(f"dry run frame {frame}")
             self.result.setText(f"Dry run. Would send <code>{frame}</code> (time {now}). Nothing was written.")
             return
+        question = f"Set the pack's clock to this computer's time ({now})?"
+        if self.main.pack.address == 0:
+            question += f"\n\n{BROADCAST_WARNING}"
         ok = QMessageBox.question(
-            self, "Set BMS clock", f"Set the pack's clock to this computer's time ({now})?",
+            self, "Set BMS clock", question,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
         )
         if ok != QMessageBox.StandardButton.Yes:

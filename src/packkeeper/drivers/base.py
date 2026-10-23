@@ -50,6 +50,7 @@ class Driver:
     connect_note_html: str = ""  # banner above the connect bar
     connection_help: str = ""  # shown when the device does not answer
     no_reply_hint: str = ""  # one sentence for the status bar
+    read_error_hint: str = ""  # added to the error when the device refuses a block read
     setup_hint: str = ""  # how to connect a pack, e.g. for the copy steps
     clock_note: str = ""
 

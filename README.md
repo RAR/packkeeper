@@ -155,7 +155,10 @@ this tool's proposal for 16S LiFePO4, not JK's limits: compare them with JK's
 app before the first write. On every connect the tool reads cell
 over-voltage at two candidate addresses to confirm how the pack numbers its
 registers; if that does not come out cleanly, writes and the clock are turned
-off for that session and the reason is shown.
+off for that session and the reason is shown. A read that fails with "may
+number its registers by word" means the pack refused an address this build
+reads by byte: the pack likely numbers its registers by word, and this build
+cannot read or write it.
 
 Never written: cell count, the charge/discharge/balance switches, the device
 address, calibration, shutdown, emergency start and the one-key presets.

@@ -237,3 +237,35 @@ def test_wide_backup_round_trip(tmp_path, monkeypatch):
     data["settings"]["cold"]["raw"] = -60
     with pytest.raises(backup.BackupError, match="edited"):
         backup.from_dict(data)
+
+
+def test_a_write_refused_before_sending_is_reported_as_not_sent(monkeypatch):
+    from packkeeper.service import NOT_ATTEMPTED
+
+    sim, dev = wide_device()
+    plan = make_plan(dev.read_block(), {"amps": 120000})
+
+    def refuse(setting, raw):
+        raise PackError("refusing to write 0x202: not a writable settings register")
+
+    monkeypatch.setattr(dev, "write_setting", refuse)
+    res = apply_plan(dev, plan)
+    assert [r.status for r in res.results] == [NOT_ATTEMPTED]
+    assert "not sent" in res.stopped and "was sent" not in res.stopped and "0x202" in res.stopped
+    assert res.final is not None and sim.writes == []
+
+
+def test_a_refusal_from_a_mid_plan_read_back_stops_cleanly():
+    from packkeeper.service import NOT_ATTEMPTED
+
+    d = Addressed()
+    sim = d.simulator()
+    dev = d.open_device(sim, SessionLog())
+    plan = make_plan(dev.read_block(), {"amps": 120000, "cold": -100})
+    assert len(plan.changes) == 2
+    sim.on_write = lambda start, values: setattr(d, "refusal", "numbering not confirmed")
+    res = apply_plan(dev, plan)
+    assert [r.status for r in res.results] == [CONFIRMED, NOT_ATTEMPTED]
+    assert "numbering not confirmed" in res.stopped and "was sent" not in res.stopped
+    assert len(sim.writes) == 1
+    assert any("RESULT" in line and "1 of 2 write(s) confirmed" in line for line in dev.log.lines)

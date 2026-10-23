@@ -141,3 +141,112 @@ def test_cli_with_address(tmp_path, capsys):
     assert main(["set", "--bms", "jk-pb", "--simulate", "--dry-run", "--log-dir", str(tmp_path),
                  "cell_ov_protection", "3.6"]) == 0
     assert "01 10 10 0C 00 02 04 00 00 0E 10" in capsys.readouterr().out
+
+
+class FlakyProbe(FakeJK):
+    """Drops the reply to the next `drops` probes of cell over-voltage once a write has gone out."""
+
+    drops_after_write = 0
+
+    def __init__(self, driver, **kw):
+        super().__init__(driver, **kw)
+        self.drops = 0
+
+    def on_write(self, start, values):
+        super().on_write(start, values)
+        self.drops = self.drops_after_write
+
+    def transact(self, request):
+        import struct
+
+        from packkeeper.transport import NoReply
+
+        start, count = struct.unpack(">HH", request[2:6])
+        if request[1] == 0x03 and (start, count) == (0x100C, 2) and self.drops:
+            self.drops -= 1
+            raise NoReply("simulated pack did not answer")
+        return super().transact(request)
+
+
+def test_writes_turned_off_by_a_read_back_stop_before_the_next_frame():
+    from packkeeper.service import NOT_ATTEMPTED
+
+    sim = FlakyProbe(JK)
+    sim.drops_after_write = 1000  # the probe never answers again
+    dev = JK.open_device(sim, SessionLog())
+    plan = make_plan(dev.read_block(), {"cell_ov_protection": 3600, "cell_ov_release": 3550})
+    res = apply_plan(dev, plan)
+    assert [r.status for r in res.results] == [CONFIRMED, NOT_ATTEMPTED]
+    assert "writes were turned off" in res.stopped and "remaining 1 write(s) were not sent" in res.stopped
+    assert "was sent" not in res.stopped and res.final is not None
+    assert len(sim.writes) == 1
+
+
+def test_one_dropped_probe_reply_does_not_turn_writes_off():
+    sim = FlakyProbe(JK)
+    sim.drops_after_write = 1
+    dev = JK.open_device(sim, SessionLog())
+    res = apply_plan(dev, make_plan(dev.read_block(), {"cell_ov_protection": 3600, "cell_ov_release": 3550}))
+    assert res.ok and dev.write_refusal is None and len(sim.writes) == 2
+
+
+def test_a_refused_read_points_at_the_register_numbering():
+    sim, dev = jk(stride=1, refuse_outside=True)  # a word-addressed pack that refuses reads outside its areas
+    with pytest.raises(PackError, match="exception 2") as e:
+        dev.read_block()
+    assert "number its registers by word" in str(e.value) and "README" in str(e.value)
+    assert any("WARN" in line and "by word" in line for line in dev.log.lines)
+    assert sim.writes == []
+
+
+def test_refuse_outside_still_serves_the_real_areas():
+    sim, dev = jk(refuse_outside=True)
+    res = apply_plan(dev, make_plan(dev.read_block(), {"cell_ov_protection": 3600}))
+    assert res.ok and dev.read_live().cell_count == 16
+    assert set_clock(dev, datetime(2026, 10, 23, 9, 30, 0)).ok
+    sim, dev = jk(JkPB(stride=1), stride=1, refuse_outside=True)
+    dev.read_block()
+    assert dev.write_refusal is None
+
+
+def test_clock_outside_its_range_is_a_setting_error(tmp_path, capsys):
+    from packkeeper.cli import main
+    from packkeeper.settings import SettingError
+
+    with pytest.raises(SettingError, match="does not fit"):
+        registers.pack_clock(datetime(2019, 12, 31, 23, 59, 59))
+    assert main(["clock", "--bms", "jk-pb", "--simulate", "--log-dir", str(tmp_path),
+                 "--set", "2019-06-01 00:00:00"]) == 2
+    assert "does not fit the BMS clock" in capsys.readouterr().err
+
+
+def _yes(monkeypatch):
+    import io
+
+    monkeypatch.setattr("sys.stdin", io.StringIO("yes\n"))
+
+
+def test_cli_write_at_address_0_warns_about_broadcast(tmp_path, capsys, monkeypatch):
+    from packkeeper.cli import main
+
+    _yes(monkeypatch)
+    assert main(["set", "--bms", "jk-pb", "--simulate", "--address", "0", "--log-dir", str(tmp_path),
+                 "cell_ov_protection", "3.6"]) == 0
+    out = capsys.readouterr().out
+    assert "broadcast address" in out and out.index("broadcast") < out.index("Type 'yes'")
+    _yes(monkeypatch)
+    assert main(["clock", "--bms", "jk-pb", "--simulate", "--address", "0", "--log-dir", str(tmp_path), "--now"]) == 0
+    out = capsys.readouterr().out
+    assert "broadcast address" in out and out.index("broadcast") < out.index("Type 'yes'")
+
+
+def test_cli_write_at_the_default_address_has_no_broadcast_warning(tmp_path, capsys, monkeypatch):
+    from packkeeper.cli import main
+
+    _yes(monkeypatch)
+    assert main(["set", "--bms", "jk-pb", "--simulate", "--log-dir", str(tmp_path), "cell_ov_protection", "3.6"]) == 0
+    out = capsys.readouterr().out
+    assert "confirmed" in out and "broadcast" not in out
+    _yes(monkeypatch)
+    assert main(["clock", "--bms", "jk-pb", "--simulate", "--log-dir", str(tmp_path), "--now"]) == 0
+    assert "broadcast" not in capsys.readouterr().out
