@@ -32,6 +32,7 @@ class Device(Protocol):
     driver: "Driver"
     log: SessionLog
     address: int
+    write_refusal: str | None
 
     def read_area(self, area, retries: int = READ_RETRIES) -> list[int]: ...
     def read_block(self) -> Block: ...
@@ -42,11 +43,16 @@ class Device(Protocol):
 
 
 class ModbusDevice:
-    def __init__(self, driver: "Driver", transport: Transport, log: SessionLog):
+    def __init__(self, driver: "Driver", transport: Transport, log: SessionLog, address: int | None = None):
         self.driver = driver
         self.transport = transport
         self.log = log
-        self.address = driver.address
+        if address is None:
+            address = driver.address
+        elif address != driver.address and (driver.address_choices is None or address not in driver.address_choices):
+            raise ValueError(f"the {driver.label} cannot be reached at address {address}")
+        self.address = address
+        self.write_refusal: str | None = None
 
     def _transact(self, request: bytes) -> bytes:
         self.log.tx(request)
@@ -98,7 +104,14 @@ class ModbusDevice:
         reason = d.blank_reason(block)
         if reason:
             self.log.error(f"refusing this read: {reason}")
-        return block.check_not_blank()
+        block.check_not_blank()
+        refusal = d.check_device(self, block)
+        if refusal and refusal != self.write_refusal:
+            self.log.error(f"writes are off: {refusal}")
+        elif self.write_refusal and not refusal:
+            self.log.info("writes are allowed again")
+        self.write_refusal = refusal
+        return block
 
     def read_live(self, retries: int = READ_RETRIES) -> Live:
         regs: list[int] = []
@@ -111,12 +124,16 @@ class ModbusDevice:
 
         The ack proves nothing: callers must re-read the block to confirm.
         """
+        if self.write_refusal:
+            raise PackError(f"writes are off: {self.write_refusal}")
         for r in setting.registers:
             if not self.driver.is_writable(r):
                 raise PackError(f"refusing to write 0x{r:02X}: not a writable settings register")
         return self._write(setting.register, setting.encode(raw))
 
     def write_clock(self, t: datetime) -> bool:
+        if self.write_refusal:
+            raise PackError(f"writes are off: {self.write_refusal}")
         if not self.driver.supports_clock:
             raise PackError(f"the {self.driver.label} has no clock to set")
         register, values = self.driver.clock_write(t)

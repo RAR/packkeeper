@@ -77,6 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("-p", "--port", help="serial port (default: the only USB serial port, or $PACKKEEPER_PORT)")
     common.add_argument("--simulate", action="store_true", help="use a built-in fake pack instead of a serial port")
     common.add_argument("--sim-state", type=Path, metavar="FILE", help="with --simulate: keep the fake pack's registers in FILE")
+    common.add_argument("--address", type=int, metavar="N", help="Modbus address, for BMS types that have one to choose")
     common.add_argument("-F", "--fahrenheit", action="store_true", help="show temperatures in °F (input too)")
     common.add_argument("--log-dir", help="where to write the session log (default: next to the file, else here)")
     write = argparse.ArgumentParser(add_help=False)
@@ -145,6 +146,13 @@ def build_parser() -> argparse.ArgumentParser:
 
 def open_pack(args, near: Path | None = None) -> ModbusDevice:
     driver = driver_of(args)
+    address = args.address
+    if address is not None:
+        if driver.address_choices is None:
+            raise CliError(f"the {driver.label} always answers at address {driver.address}; --address does not apply")
+        if address not in driver.address_choices:
+            c = driver.address_choices
+            raise CliError(f"--address must be {c.start}..{c.stop - 1} for the {driver.label}")
     log_dir = Path(args.log_dir) if args.log_dir else (near.resolve().parent if near else None)
     log = SessionLog(default_log_path(log_dir))
     log.info(f"BMS type {driver.label}")
@@ -164,7 +172,9 @@ def open_pack(args, near: Path | None = None) -> ModbusDevice:
         name = port
     log.info(f"port {name}")
     print(f"Port: {name}   Log: {log.path}")
-    return driver.open_device(transport, log)
+    if address is not None:
+        log.info(f"address {address}")
+    return driver.open_device(transport, log, address)
 
 
 # --- commands --------------------------------------------------------------
@@ -189,6 +199,8 @@ def print_identity(block: Block) -> None:
     if block.driver.supports_clock:
         bad = f"invalid (0x{ident.clock_raw:08X})" if ident.clock_raw is not None else "invalid"
         print(f"BMS clock {ident.clock or bad}")
+    for label, text in block.driver.info_lines(block):
+        print(f"{label:9s} {text}")
     for w in block.driver.identity_warnings(block):
         print(f"warning: {w}")
 
@@ -361,6 +373,8 @@ def run_write(pack: ModbusDevice, targets: dict[str, int], source_name: str, arg
             print(f"  {frame.hex(' ').upper()}   {c.setting.label}")
             pack.log.info(f"dry run frame {frame.hex(' ').upper()}")
         return 0
+    if pack.write_refusal:
+        raise PackError(f"writes are off: {pack.write_refusal}. Nothing was written.")
 
     pre = pack.log.before_path()
     if pre:
@@ -423,6 +437,8 @@ def cmd_clock(args) -> int:
     if args.dry_run:
         print("Dry run: nothing written.")
         return 0
+    if pack.write_refusal:
+        raise PackError(f"writes are off: {pack.write_refusal}. Nothing was written.")
     if input("Type 'yes' to set the clock: ").strip().lower() != "yes":
         print("Nothing was written.")
         return 1

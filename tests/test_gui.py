@@ -369,3 +369,32 @@ def test_bms_stays_locked_until_a_pending_job_after_disconnect_is_done(window, m
     wait(app, lambda: not w.worker.busy)
     assert w.bms.isEnabled()
     assert shown == [] and w.settings.block is None  # the late result was dropped
+
+
+def test_address_box_only_for_drivers_with_choices(tmp_path, monkeypatch):
+    from packkeeper import drivers, qtcommon
+    from test_wide import Addressed
+    d = Addressed()
+    d.name = "addressed"
+    monkeypatch.setitem(drivers.DRIVERS, "addressed", d)
+    monkeypatch.setattr(qtcommon, "data_dir", lambda: tmp_path)
+    app = QApplication.instance() or QApplication([])
+    w = gui.MainWindow()
+    w.show()
+    try:
+        assert w.address.isHidden()  # EG4-LL
+        w.bms.setCurrentIndex(w.bms.findData("addressed"))
+        assert not w.address.isHidden() and w.address.value() == 9
+        d.refusal = "numbering not confirmed"
+        w.ports.setCurrentIndex(w.ports.findData(gui.SIM_PORT))
+        w.toggle_connect()
+        wait(app, lambda: w.settings.block is not None)
+        assert not w.address.isEnabled()
+        assert "writes off" in w.identity.text() and "numbering not confirmed" in w.identity.toolTip()
+        warned = []
+        monkeypatch.setattr(gui.QMessageBox, "warning", lambda *a: warned.append(a[2]))
+        w.settings.staged["amps"] = 120000
+        w.review()
+        assert warned and "numbering not confirmed" in warned[0]
+    finally:
+        w.close()

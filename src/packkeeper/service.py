@@ -85,6 +85,9 @@ def apply_plan(
         raise DriverMismatch(
             f"this plan is for {_a(plan.base.driver.label)} BMS and the connected device is {_a(pack.driver.label)}"
         )
+    refusal = getattr(pack, "write_refusal", None)
+    if refusal:
+        raise PackError(f"writes are off: {refusal}; nothing was written")
     for change in plan.changes:
         for r in change.setting.registers:
             if not pack.driver.is_writable(r):
@@ -95,6 +98,9 @@ def apply_plan(
     table = plan.base.driver.table
 
     now = pack.read_block()
+    refusal = getattr(pack, "write_refusal", None)
+    if refusal:
+        raise PackError(f"writes are off: {refusal}; nothing was written")
     changed = register_diff(plan.base, now)
     if changed:
         what = ", ".join(dict.fromkeys(describe_register(now, r) for r in changed))
@@ -203,6 +209,9 @@ def set_clock(pack: Device, t: datetime) -> ClockResult:
     if not pack.driver.supports_clock:
         raise PackError(f"the {pack.driver.label} has no clock to set")
     before = pack.read_block().clock
+    refusal = getattr(pack, "write_refusal", None)
+    if refusal:
+        raise PackError(f"writes are off: {refusal}; nothing was written")
     t = t.replace(microsecond=0, tzinfo=None)
     pack.log.info(f"setting the BMS clock to {t}")
     acked = pack.write_clock(t)

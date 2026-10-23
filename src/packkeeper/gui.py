@@ -35,6 +35,7 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSpinBox,
     QTableWidget,
     QTableWidgetItem,
     QTabWidget,
@@ -222,15 +223,16 @@ class LiveTab(QWidget):
                 lbl.setStyleSheet(f"border: 2px solid {QColor(56, 132, 255).name()};")
             else:
                 lbl.setStyleSheet("")
+        extra = "".join(f"<br><b>{label}:</b> {text}" for label, text in rt.extra)
         if rt.full_capacity_ah is not None:
             design = f" (design {rt.design_capacity_ah:.1f} Ah)" if rt.design_capacity_ah is not None else ""
             cycles = f" &nbsp;·&nbsp; <b>Cycles:</b> {rt.cycles}" if rt.cycles is not None else ""
             self.details.setText(
                 f"<b>Capacity:</b> {rt.remaining_ah} Ah remaining of {rt.full_capacity_ah:.1f} Ah full"
-                f"{design}{cycles}"
+                f"{design}{cycles}" + extra
             )
         else:
-            self.details.setText("")
+            self.details.setText(extra[4:])
         self.temps.setText(f"<b>Temperatures:</b> {', '.join(f'{label} {t(v)}' for label, v in rt.temps)}")
         self.updated.setText(f"Updated {datetime.now():%H:%M:%S}. Read-only: nothing here writes to the pack.")
 
@@ -446,7 +448,7 @@ class ClockTab(QWidget):
         else:
             raw = block.clock_raw
             self.bms.setText("invalid" if raw is None else f"invalid (0x{raw:08X})")
-        self.set_btn.setEnabled(has_clock)
+        self.set_btn.setEnabled(has_clock and not (self.main.pack and self.main.pack.write_refusal))
 
     def set_clock(self):
         now = datetime.now().replace(microsecond=0)
@@ -510,6 +512,11 @@ class MainWindow(QMainWindow):
             self.bms.addItem(d.label, d.name)
         self.bms.setCurrentIndex(self.bms.findData(drivers.DEFAULT))
         bar.addWidget(self.bms)
+        self.address_label = QLabel("Address:")
+        bar.addWidget(self.address_label)
+        self.address = QSpinBox()
+        self.address.setToolTip("The pack's Modbus address (its DIP switch setting)")
+        bar.addWidget(self.address)
         bar.addWidget(QLabel("Port:"))
         self.ports = QComboBox()
         self.ports.setMinimumWidth(320)
@@ -587,6 +594,12 @@ class MainWindow(QMainWindow):
         self.note.setText(d.connect_note_html)
         self.note.setVisible(bool(d.connect_note_html))
         self.clock.note.setText(d.clock_note)
+        choices = d.address_choices
+        self.address_label.setVisible(choices is not None)
+        self.address.setVisible(choices is not None)
+        if choices is not None:
+            self.address.setRange(choices.start, choices.stop - 1)
+            self.address.setValue(d.address)
         self.tabs.setTabVisible(self.tabs.indexOf(self.clock), d.supports_clock)
         if self.settings.driver is not d:
             self.install_settings(d)
@@ -651,6 +664,7 @@ class MainWindow(QMainWindow):
     def set_connected(self, on: bool):
         self.connect_btn.setText("Disconnect" if on else "Connect")
         self.bms.setEnabled(not on and not self.worker.busy)
+        self.address.setEnabled(not on)
         self.ports.setEnabled(not on)
         self.refresh_btn.setEnabled(not on)
         self.settings.read_btn.setEnabled(on)
@@ -692,7 +706,10 @@ class MainWindow(QMainWindow):
         self.port_name = device
         self.log.info(f"BMS type {driver.label}")
         self.log.info(f"port {device}")
-        self.pack = driver.open_device(transport, self.log)
+        address = self.address.value() if driver.address_choices is not None else None
+        if address is not None:
+            self.log.info(f"address {address}")
+        self.pack = driver.open_device(transport, self.log, address)
         self.set_connected(True)
         self.status(f"Connected to {device}. Reading the pack…")
         self.read_settings()
@@ -738,12 +755,16 @@ class MainWindow(QMainWindow):
         text = f"<b>{block.model}</b> · firmware {block.firmware}"
         if warnings:
             text += f" · <b style='color:{WARN.name()}'>check BMS type</b>"
+        refusal = self.pack.write_refusal
+        if refusal:
+            text += f" · <b style='color:{BAD.name()}'>writes off</b>"
+            warnings = [*warnings, f"Writes are off: {refusal}"]
         self.identity.setText(text)
         self.identity.setToolTip("\n".join(warnings))
         if not self.live_timer.isActive() and QApplication.activeModalWidget() is None:
             self.poll_live()
             self.live_timer.start(2000)
-        self.status("Settings read from the pack.")
+        self.status(f"Writes are off: {refusal}", error=True) if refusal else self.status("Settings read from the pack.")
 
     def poll_live(self):
         if self.pack is None or self.worker.busy:
@@ -761,6 +782,9 @@ class MainWindow(QMainWindow):
             if isinstance(err, NoReply):
                 self.status(f"The pack is not answering. {self.pack.driver.no_reply_hint}", error=True)
             return
+        block = self.settings.block
+        if block is not None:
+            rt.extra = [*rt.extra, *block.driver.info_lines(block)]
         self._last_rt = rt
         self.live.show_realtime(rt, self.fahrenheit)
 
@@ -772,6 +796,9 @@ class MainWindow(QMainWindow):
     # writing
     def review(self):
         if self.pack is None or not self.settings.staged:
+            return
+        if self.pack.write_refusal:
+            QMessageBox.warning(self, "Writes are off", self.pack.write_refusal)
             return
         targets = dict(self.settings.staged)
         src = self.settings.current_source()

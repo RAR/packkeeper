@@ -43,6 +43,7 @@ class Driver:
     areas: tuple[Area, ...]  # what one block read covers, in order
     serial: SerialParams = SerialParams()
     address: int = 1
+    address_choices: range | None = None  # None: always at `address`
     pages: tuple[Page, ...] = ()
     live_reads: tuple[Area | tuple[int, int], ...] = ()  # Area (or (start, count)) reads, concatenated for decode_live
     supports_clock: bool = False
@@ -83,6 +84,14 @@ class Driver:
         """Soft checks that the device really is this kind of BMS."""
         return []
 
+    def check_device(self, device, block: Block) -> str | None:
+        """Runs after every block read (reads only). A reason here turns writes off."""
+        return None
+
+    def info_lines(self, block: Block) -> list[tuple[str, str]]:
+        """Read-only values worth showing next to the identity, as (label, text)."""
+        return []
+
     def clock_write(self, t: datetime) -> tuple[int, list[int]]:
         raise NotImplementedError(f"{self.label} has no clock")
 
@@ -100,10 +109,10 @@ class Driver:
         register, values = self.clock_write(t)
         return modbus.write_request(self.address if address is None else address, register, values)
 
-    def open_device(self, transport, log):
+    def open_device(self, transport, log, address: int | None = None):
         from ..device import ModbusDevice
 
-        return ModbusDevice(self, transport, log)
+        return ModbusDevice(self, transport, log, address)
 
     @cached_property
     def ordered_keys(self) -> list[str]:

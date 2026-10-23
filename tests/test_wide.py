@@ -163,3 +163,58 @@ def test_planner_and_device_check_every_register_of_a_setting():
     with pytest.raises(ValueError, match="0x20A"):
         apply_plan(dev, plan)
     assert sim.writes == []
+from packkeeper.device import PackError  # noqa: E402
+from packkeeper.transport import NoReply  # noqa: E402
+
+
+class Addressed(type(WIDE)):
+    address_choices = range(0, 248)
+    refusal = None
+
+    def check_device(self, device, block):
+        return self.refusal
+
+
+def test_session_address_reaches_every_frame():
+    d = Addressed()
+    sim = d.simulator()
+    sim.answer_to = 5
+    dev = d.open_device(sim, SessionLog(), address=5)
+    block = dev.read_block()
+    assert dev.address == 5 and make_plan(block, {"amps": 120000}).frames(dev.address)[0][0] == 5
+    with pytest.raises(NoReply):
+        d.open_device(sim, SessionLog()).read_block()  # default address 9: no answer
+
+
+def test_address_outside_the_choices_is_refused():
+    with pytest.raises(ValueError, match="address"):
+        Addressed().open_device(WIDE.simulator(), SessionLog(), address=300)
+    with pytest.raises(ValueError, match="address"):
+        WIDE.open_device(WIDE.simulator(), SessionLog(), address=5)  # no choices: fixed at 9
+
+
+def test_a_write_refusal_stops_every_write_before_any_frame():
+    from packkeeper.service import set_clock
+
+    d = Addressed()
+    d.refusal = "numbering not confirmed"
+    sim = d.simulator()
+    dev = d.open_device(sim, SessionLog())
+    block = dev.read_block()  # reads still work
+    assert dev.write_refusal == "numbering not confirmed"
+    with pytest.raises(PackError, match="numbering not confirmed"):
+        dev.write_setting(d.table["amps"], 120000)
+    with pytest.raises(PackError, match="numbering not confirmed"):
+        apply_plan(dev, make_plan(block, {"amps": 120000}))
+    assert sim.writes == []
+    d.supports_clock = True
+    with pytest.raises(PackError, match="numbering not confirmed"):
+        set_clock(dev, __import__("datetime").datetime(2026, 1, 1))
+    assert any("writes are off" in line for line in dev.log.lines)
+
+
+def test_cli_address_option(tmp_path, capsys):
+    from packkeeper.cli import main
+
+    assert main(["info", "--simulate", "--address", "5", "--log-dir", str(tmp_path)]) == 2
+    assert "--address" in capsys.readouterr().err  # EG4-LL is fixed at address 1
