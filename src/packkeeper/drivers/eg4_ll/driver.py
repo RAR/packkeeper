@@ -7,7 +7,7 @@ from datetime import datetime
 from functools import cached_property
 from pathlib import Path
 
-from ...block import Block, Identity, ascii_text
+from ...block import Area, Block, Identity, ascii_text
 from ...transport import SerialParams
 from ..base import Driver, Profile
 from . import live, registers
@@ -19,8 +19,7 @@ class Eg4LL(Driver):
     name = "eg4-ll"
     label = "EG4-LL"
     table = TABLE
-    block_start = registers.REG_BLOCK
-    block_count = registers.BLOCK_COUNT
+    areas = (Area(registers.REG_BLOCK, registers.BLOCK_COUNT),)
     serial = SerialParams(baud=115200)
     address = registers.ADDRESS
     pages = PAGES

@@ -58,7 +58,7 @@ def test_registry_has_eg4_ll_by_default():
     from packkeeper import drivers
     assert drivers.DEFAULT == "eg4-ll"
     d = drivers.get("eg4-ll")
-    assert d.label == "EG4-LL" and d.block_start == 0x2D and d.block_count == 91
+    assert d.label == "EG4-LL" and d.areas == ((0x2D, 91, 1),)
     with pytest.raises(drivers.UnknownDriver, match="nope"):
         drivers.get("nope")
 

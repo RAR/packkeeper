@@ -4,7 +4,7 @@ Test-only; never registered in the shipped app."""
 
 from functools import cached_property
 
-from packkeeper.block import Identity, ascii_text
+from packkeeper.block import Area, Identity, ascii_text
 from packkeeper.drivers.base import Driver, Profile
 from packkeeper.layout import TEMP, Page, Section
 from packkeeper.live import Live
@@ -41,8 +41,7 @@ class Toy(Driver):
     name = "toy"
     label = "Toy BMS"
     table = SettingTable.build(SPEC, LIMITS, ORDER, linked=[LinkedPair("trip_a", "trip_b", "toy pair")])
-    block_start = START
-    block_count = COUNT
+    areas = (Area(START, COUNT),)
     serial = SerialParams(baud=9600)
     address = 7
     live_reads = ((0x00, 6),)

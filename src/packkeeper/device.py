@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
 from . import modbus
-from .block import Block
+from .block import Area, Block
 from .live import Live
 from .session import SessionLog
 from .transport import NoReply
@@ -15,6 +15,7 @@ if TYPE_CHECKING:
     from .drivers.base import Driver
 
 READ_RETRIES = 3
+MAX_READ = 125  # FC03 limit
 
 
 class Transport(Protocol):
@@ -29,6 +30,14 @@ class PackError(Exception):
 class Device(Protocol):
     driver: "Driver"
     log: SessionLog
+
+    def read_area(self, area, retries: int = READ_RETRIES) -> list[int]:
+        """One area, in FC03 reads of at most MAX_READ registers."""
+        area = Area(*area)
+        out: list[int] = []
+        for i in range(0, area.count, MAX_READ):
+            out += self.read(area.start + i * area.stride, min(MAX_READ, area.count - i), retries)
+        return out
 
     def read_block(self) -> Block: ...
     def read_live(self, retries: int = READ_RETRIES) -> Live: ...
@@ -79,10 +88,18 @@ class ModbusDevice:
         assert last is not None
         raise last
 
+    def read_area(self, area, retries: int = READ_RETRIES) -> list[int]:
+        """One area, in FC03 reads of at most MAX_READ registers."""
+        area = Area(*area)
+        out: list[int] = []
+        for i in range(0, area.count, MAX_READ):
+            out += self.read(area.start + i * area.stride, min(MAX_READ, area.count - i), retries)
+        return out
+
     def read_block(self) -> Block:
         """The settings block; refuses a read the driver calls blank."""
         d = self.driver
-        block = d.block(self.read(d.block_start, d.block_count))
+        block = d.block(*(self.read_area(a) for a in d.areas))
         reason = d.blank_reason(block)
         if reason:
             self.log.error(f"refusing this read: {reason}")
@@ -90,8 +107,8 @@ class ModbusDevice:
 
     def read_live(self, retries: int = READ_RETRIES) -> Live:
         regs: list[int] = []
-        for start, count in self.driver.live_reads:
-            regs += self.read(start, count, retries)
+        for area in self.driver.live_reads:
+            regs += self.read_area(area, retries)
         return self.driver.decode_live(regs)
 
     def write_setting(self, register: int, raw: int) -> bool:

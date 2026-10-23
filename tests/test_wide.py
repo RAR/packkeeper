@@ -58,3 +58,63 @@ def test_overlapping_settings_are_refused():
     spec = {"a": (0x10, 1, 0, None, None, 0, 2, False), "b": (0x11, 1, 0, None, None, 0)}
     with pytest.raises(ValueError, match="0x11"):
         SettingTable.build(spec, {"a": (0, 9, 1), "b": (0, 9, 1)}, [])
+
+
+from packkeeper.block import Area  # noqa: E402
+from packkeeper.session import SessionLog  # noqa: E402
+
+from wide_toy_driver import WIDE  # noqa: E402
+
+
+def wide_device(**kw):
+    sim = WIDE.simulator()
+    for k, v in kw.items():
+        setattr(sim, k, v)
+    return sim, WIDE.open_device(sim, SessionLog())
+
+
+def test_area_addresses_follow_the_stride():
+    assert list(Area(0x200, 3, 2).addresses()) == [0x200, 0x202, 0x204]
+    assert Area(0x2D, 91) == (0x2D, 91, 1)
+
+
+def test_block_reads_wide_and_signed_values():
+    _sim, dev = wide_device()
+    b = dev.read_block()
+    assert b.raw("amps") == 150000 and b.raw("cold") == -50
+    assert b.reg(0x20A) == 9 and b.unknown_registers() == {}  # 0x20A is not writable here
+    assert b.regs(0x202, 2) == [0x0002, 0x49F0]
+    with pytest.raises(KeyError):
+        b.reg(0x203)  # between two registers of a stride-2 area
+
+
+def test_with_raws_splits_a_wide_value():
+    _sim, dev = wide_device()
+    b = dev.read_block().with_raws({0x206: -100})
+    assert b.regs(0x206, 2) == [0xFFFF, 0xFF9C] and b.raw("cold") == -100
+
+
+def test_long_areas_are_read_in_chunks_at_stride_addresses():
+    from packkeeper import device
+
+    class Long(type(WIDE)):
+        areas = (Area(0x1000, 141, 2),)
+
+    image = [7] * 0x1200
+    sim = WIDE.simulator()
+    sim.image, sim.stride = image, 2
+    dev = Long().open_device(sim, SessionLog())
+    regs = dev.read_area(Long.areas[0])
+    assert len(regs) == 141 and device.MAX_READ == 125
+    tx = [line.split(None, 2)[2] for line in dev.log.lines if line.split(None, 2)[1] == "TX"]
+    assert [t[:17] for t in tx] == ["09 03 10 00 00 7D", "09 03 10 FA 00 10"]
+
+
+def test_eg4_still_reads_its_block_in_one_frame():
+    from packkeeper.drivers.eg4_ll import DRIVER
+    from packkeeper.drivers.eg4_ll.sim import FakePack
+
+    dev = DRIVER.open_device(FakePack(), SessionLog())
+    dev.read_block()
+    tx = [line.split(None, 2)[2] for line in dev.log.lines if line.split(None, 2)[1] == "TX"]
+    assert tx == ["01 03 00 2D 00 5B 94 38"]

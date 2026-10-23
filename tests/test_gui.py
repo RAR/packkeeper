@@ -274,7 +274,7 @@ def test_backup_from_another_bms_is_not_offered(window, monkeypatch, tmp_path):
         label = "Other BMS"
     foreign = Block.__new__(Block)
     object.__setattr__(foreign, "driver", Other())
-    object.__setattr__(foreign, "registers", w.settings.block.registers)
+    object.__setattr__(foreign, "areas", w.settings.block.areas)
     monkeypatch.setattr(backup, "load", lambda p: backup.Backup(foreign, "now", "x"))
     monkeypatch.setattr(gui.settings_view.QFileDialog, "getOpenFileName", lambda *a, **k: (str(tmp_path / "x.json"), ""))
     errors = []

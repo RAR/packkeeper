@@ -9,7 +9,7 @@ from functools import cached_property
 from pathlib import Path
 
 from .. import modbus
-from ..block import Block, Identity
+from ..block import Area, Block, Identity
 from ..layout import Page
 from ..live import Live
 from ..settings import SettingTable
@@ -40,12 +40,11 @@ class Driver:
     name: str  # CLI --bms value and backup "bms" field, e.g. "eg4-ll"
     label: str  # shown to people, e.g. "EG4-LL"
     table: SettingTable
-    block_start: int
-    block_count: int
+    areas: tuple[Area, ...]  # what one block read covers, in order
     serial: SerialParams = SerialParams()
     address: int = 1
     pages: tuple[Page, ...] = ()
-    live_reads: tuple[tuple[int, int], ...] = ()  # (start, count) reads, concatenated for decode_live
+    live_reads: tuple[Area | tuple[int, int], ...] = ()  # Area (or (start, count)) reads, concatenated for decode_live
     supports_clock: bool = False
     connect_note_html: str = ""  # banner above the connect bar
     connection_help: str = ""  # shown when the device does not answer
@@ -89,8 +88,9 @@ class Driver:
 
     # --- provided -----------------------------------------------------------
 
-    def block(self, registers) -> Block:
-        return Block(self, tuple(registers))
+    def block(self, *areas) -> Block:
+        """A block from one register list per area (a single list for one area)."""
+        return Block(self, tuple(tuple(a) for a in areas))
 
     def write_frame(self, register: int, raw: int) -> bytes:
         return modbus.write_request(self.address, register, [raw])

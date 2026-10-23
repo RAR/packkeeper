@@ -39,6 +39,7 @@ class Backup:
 def to_dict(block: Block, port: str | None = None) -> dict:
     d = block.driver
     clock = block.clock
+    area = d.areas[0]
     return {
         "format": FORMAT,
         "format_version": FORMAT_VERSION,
@@ -53,8 +54,8 @@ def to_dict(block: Block, port: str | None = None) -> dict:
             "serial_note": "the same on every pack; cannot identify a pack",
             "bms_clock": clock.isoformat(sep=" ") if clock else None,
         },
-        "start_register": d.block_start,
-        "register_count": d.block_count,
+        "start_register": area.start,
+        "register_count": area.count,
         "registers": list(block.registers),
         "settings": {
             key: {
@@ -95,10 +96,9 @@ def from_dict(data: dict, where: str = "backup") -> Backup:
         driver = drivers.get(name)
     except drivers.UnknownDriver as e:
         raise BackupError(f"{where}: {e}") from None
-    if data.get("start_register") != driver.block_start or data.get("register_count") != driver.block_count:
-        raise BackupError(
-            f"{where}: not a {driver.label} settings block (0x{driver.block_start:02X} x{driver.block_count})"
-        )
+    area = driver.areas[0]
+    if len(driver.areas) != 1 or data.get("start_register") != area.start or data.get("register_count") != area.count:
+        raise BackupError(f"{where}: not a {driver.label} settings block (0x{area.start:02X} x{area.count})")
     regs = data.get("registers")
     if not isinstance(regs, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in regs):
         raise BackupError(f"{where}: 'registers' must be a list of integers")
