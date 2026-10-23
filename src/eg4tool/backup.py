@@ -89,6 +89,8 @@ def from_dict(data: dict, where: str = "backup") -> Backup:
     if version not in READABLE_VERSIONS:
         raise BackupError(f"{where}: unsupported format version {version}")
     name = data.get("bms") if version >= 2 else drivers.DEFAULT
+    if not isinstance(name, str):
+        raise BackupError(f"{where}: 'bms' must name a BMS type")
     try:
         driver = drivers.get(name)
     except drivers.UnknownDriver as e:

@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable
 
-from .block import Block, DriverMismatch
+from .block import Block, DriverMismatch, _a
 from .device import Device, PackError
 from .errors import DeviceRefused
 from .planner import Change, Plan
@@ -83,8 +83,14 @@ def apply_plan(
         raise ValueError("refusing to apply a plan with errors")
     if pack.driver is not plan.base.driver:
         raise DriverMismatch(
-            f"this plan is for a {plan.base.driver.label} BMS and the connected device is a {pack.driver.label}"
+            f"this plan is for {_a(plan.base.driver.label)} BMS and the connected device is {_a(pack.driver.label)}"
         )
+    for change in plan.changes:
+        if not pack.driver.is_writable(change.register):
+            raise ValueError(
+                f"refusing to apply the plan: 0x{change.register:02X} is not a writable register "
+                f"on the {pack.driver.label}; nothing was written"
+            )
     table = plan.base.driver.table
 
     now = pack.read_block()

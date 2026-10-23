@@ -10,6 +10,10 @@ if TYPE_CHECKING:
     from .drivers.base import Driver
 
 
+def _a(label: str) -> str:
+    return ("an " if label[:1].upper() in "AEFHILMNORSX" else "a ") + label
+
+
 def ascii_text(regs: list[int]) -> str:
     out = []
     for r in regs:
@@ -107,7 +111,7 @@ class Block:
     def same_driver(self, other: "Block", what: str = "the other block") -> None:
         if other.driver is not self.driver:
             raise DriverMismatch(
-                f"{what} is from a {other.driver.label} BMS and this one is a {self.driver.label}; "
+                f"{what} is from {_a(other.driver.label)} BMS and this one is {_a(self.driver.label)}; "
                 "settings never move between different BMS types"
             )
 

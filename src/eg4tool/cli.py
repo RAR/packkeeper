@@ -20,6 +20,7 @@ from .session import SessionLog, default_log_path
 from .settings import SettingError, SettingTable
 from .transport import NoReply, guess_port, list_ports
 
+
 def driver_of(args):
     return drivers.get(getattr(args, "bms", None) or drivers.DEFAULT)
 

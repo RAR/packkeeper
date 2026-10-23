@@ -131,16 +131,25 @@ Register it in `drivers/__init__.py`. The engine, CLI (`--bms`) and app
 (the BMS selector) pick it up from there. `tests/toy_driver.py` is a
 minimal driver used to keep the engine honest.
 
+The defaults assume Modbus RTU: `write_frame`, `clock_frame`, `open_device`
+(which returns a `ModbusDevice`) and `live_reads`. A non-Modbus BMS overrides
+`open_device` to return its own `Device`. That device's `read_block()` must
+call `block.check_not_blank()` before returning, and its `write_setting` must
+refuse registers where `driver.is_writable` is false. It also overrides
+`write_frame` and `clock_frame` so `--dry-run` output makes sense.
+
 A new driver should only ever be used for `info`, `backup`, `diff` and
 `live` until its register map has been checked against a real unit.
 
 ## Safe ranges and rules
 
 The settings, their encodings, LIMITS and ORDER rules are
-[`src/eg4tool/settings_table.py`](src/eg4tool/settings_table.py). It is
+[`src/eg4tool/drivers/eg4_ll/settings_table.py`](src/eg4tool/drivers/eg4_ll/settings_table.py). It is
 vendored unchanged from
 [esphome-eg4-bms](https://github.com/RAR/esphome-eg4-bms) (`feat/rs232-service`,
-`cb105bf`), so the ESPHome component and this tool share one source of truth.
+`cb105bf`), so the ESPHome component and this tool share one source of truth. This
+tool's own tightening (`LIMIT_OVERRIDES` and the linked 0x52/0x54 pair) lives
+in [`src/eg4tool/drivers/eg4_ll/table.py`](src/eg4tool/drivers/eg4_ll/table.py).
 
 - **Tighten, never loosen.** No limit lets a protection go past what the pack
   ships with (cell OV 3.80 V, pack OV 60.80 V, cell UV 2.30 V, currents

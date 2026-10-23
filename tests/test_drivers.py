@@ -236,3 +236,34 @@ def test_generic_code_never_imports_the_eg4_driver():
             if any("eg4_ll" in n for n in names):
                 offenders.append(f"{rel}:{node.lineno}")
     assert offenders == []
+
+
+def test_apply_plan_refuses_a_forged_change_to_a_non_writable_register():
+    import dataclasses
+    from eg4tool.planner import Change
+    sim, dev = toy_device()
+    plan = make_plan(dev.read_block(), {"low_cut": 290})
+    assert plan.ok
+    forged = dataclasses.replace(TOY.table["low_cut"], register=0x100)
+    plan.changes.append(Change(forged, 0, 1))
+    with pytest.raises(ValueError, match="0x100"):
+        apply_plan(dev, plan)
+    assert sim.writes == []
+
+
+def test_toy_device_refuses_to_write_a_non_writable_register():
+    from eg4tool.device import PackError
+    sim, dev = toy_device()
+    with pytest.raises(PackError):
+        dev.write_setting(0x100, 1)
+    assert sim.writes == []
+
+
+def test_backup_with_a_malformed_bms_field_is_refused():
+    data = backup.to_dict(REF)
+    data["bms"] = ["eg4-ll"]
+    with pytest.raises(backup.BackupError, match="must name a BMS type"):
+        backup.from_dict(data)
+    del data["bms"]
+    with pytest.raises(backup.BackupError, match="must name a BMS type"):
+        backup.from_dict(data)

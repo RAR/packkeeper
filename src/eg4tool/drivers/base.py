@@ -27,6 +27,16 @@ class Profile:
 
 
 class Driver:
+    """One BMS family: its settings table, block layout, texts and simulator.
+
+    The defaults assume Modbus RTU: write_frame, clock_frame, open_device
+    (which returns ModbusDevice) and live_reads. A non-Modbus BMS overrides
+    open_device to return its own Device. That device's read_block() must call
+    block.check_not_blank() before returning, and its write_setting must
+    refuse registers where driver.is_writable is false. It also overrides
+    write_frame and clock_frame for dry-run output.
+    """
+
     name: str  # CLI --bms value and backup "bms" field, e.g. "eg4-ll"
     label: str  # shown to people, e.g. "EG4-LL"
     table: SettingTable

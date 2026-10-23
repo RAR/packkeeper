@@ -706,7 +706,10 @@ class MainWindow(QMainWindow):
             if self.worker.busy:  # close after the job holding the port
                 self.worker.submit(pack.close, lambda *_: None)
             else:
-                pack.close()
+                try:
+                    pack.close()
+                except Exception as e:  # noqa: BLE001 - always finish disconnecting
+                    pack.log.warn(f"error while closing the port: {e}")
             pack.log.info("disconnected")
         self.set_connected(False)
         self.status("Disconnected.")
