@@ -71,3 +71,151 @@ def test_fake_bus_routes_by_address():
     assert bus.transact(F.read_request(5, 0x1800, 1))
     with pytest.raises(NoReply):
         bus.transact(F.read_request(3, 0x1800, 1))
+
+
+from datetime import datetime  # noqa: E402
+
+from packkeeper import backup, drivers  # noqa: E402
+from packkeeper.block import BlankBlockError  # noqa: E402
+from packkeeper.device import PackError  # noqa: E402
+from packkeeper.planner import identity_warnings, make_plan  # noqa: E402
+from packkeeper.service import CONFIRMED, NOT_APPLIED, apply_plan, set_clock  # noqa: E402
+from packkeeper.session import SessionLog  # noqa: E402
+
+
+def jbd(**kw):
+    from packkeeper.drivers.jbd_up import DRIVER
+    from packkeeper.drivers.jbd_up.sim import FakeJbd
+
+    sim = FakeJbd(**kw)
+    return sim, DRIVER.open_device(sim, SessionLog(), kw.get("address", 0))
+
+
+def test_registered_with_its_tables():
+    from packkeeper.drivers.jbd_up import DRIVER as D
+
+    assert drivers.get("jbd-up") is D and D.serial.baud == 9600 and D.broadcast_address is None
+    t = D.table
+    assert t["cell_ov_protection"].register == 0x1806 and t["cell_ov_protection"].unit == "V"
+    assert t["charge_ot_protection"].format(t["charge_ot_protection"].parse("55")) == "55.0 °C"
+    assert t["charge_ot_protection"].parse("55") == 1050
+    assert set(t.unsafe_keys) == {
+        "cells_in_series", "shunt_resistance", "short_circuit_current", "short_circuit_delay_step",
+        "pack_type", "cell_maker", "soc_config_bits", "function_bits", "can_protocol", "rs485_protocol", "can_baud",
+    }
+    for reg in (0x290C, 0x290E, 0x2910, 0x2914, 0x2100, 0x1C82, 0x1C88, 0x2004, 0x2006, 0x200A, 0x1C34, 0x2800):
+        assert not D.is_writable(reg), hex(reg)
+
+
+def test_read_decodes_identity_and_settings():
+    _sim, dev = jbd()
+    b = dev.read_block()
+    assert dev.write_refusal is None and dev.framing.key == 0x11
+    assert b.model == "JBD-UP16S010" and b.serial == "SIM-PACK-1"
+    assert b.firmware == "app 2.6 (hw 2, protocol 1.1)"
+    assert b.clock == datetime(2026, 10, 23, 8, 0, 0)
+    assert b.raw("cell_ov_protection") == 3650 and b.raw("charge_oc1_protection") == 1050
+    assert b.raw("pack_type") == 0 and b.driver.table["pack_type"].format(0) == "LFP"
+
+
+def test_live_decode():
+    _sim, dev = jbd()
+    rt = dev.read_live()
+    assert rt.cell_count == 16 and rt.cells[0] == 3.3 and rt.pack_voltage == 52.83
+    assert rt.current == -3.2 and rt.soc == 76 and rt.soh == 100 and rt.cycles == 37
+    assert ("MOSFET", 31) in rt.temps and rt.max_temp == 25
+    assert rt.status_text == "Discharging" and rt.charge_allowed and rt.discharge_allowed
+    assert rt.remaining_ah == 76.0 and rt.full_capacity_ah == 100.0
+
+
+def test_write_confirmed_with_the_key_byte():
+    sim, dev = jbd()
+    p = make_plan(dev.read_block(), {"cell_ov_protection": 3600})
+    assert p.ok, p.errors
+    assert p.frames(dev.address, dev.framing)[0][:12].hex(" ").upper() == "00 79 18 06 18 08 00 06 11 4A 42 44"
+    res = apply_plan(dev, p)
+    assert res.ok and res.results[0].status == CONFIRMED and sim.writes == [(0x1806, [3600])]
+
+
+def test_wrong_key_is_not_applied():
+    sim, dev = jbd(key=0x13)  # the pack wants 0x13 but reports protocol 0x11
+    res = apply_plan(dev, make_plan(dev.read_block(), {"cell_ov_protection": 3600}))
+    assert res.results[0].status == NOT_APPLIED and sim.word(0x1806) == 3650
+
+
+def test_dropped_write_is_not_applied():
+    _sim, dev = jbd()
+    res = apply_plan(dev, make_plan(dev.read_block(), {"balance_start_delta": 10}))
+    assert res.results[0].status == NOT_APPLIED
+
+
+def test_rules_and_unsafe_gate():
+    _sim, dev = jbd()
+    b = dev.read_block()
+    assert not make_plan(b, {"cell_ov_alarm": 3700}).ok  # above its range and above protection 3650
+    assert not make_plan(b, {"cell_ov_protection_recovery": 3650}).ok  # must stay below protection
+    assert not make_plan(b, {"cells_in_series": 15}).ok
+    assert make_plan(b, {"cells_in_series": 15}, allow_unsafe=True).ok
+
+
+def test_large_capacity_turns_writes_off():
+    _sim, dev = jbd(large_capacity=True)
+    dev.read_block()
+    assert dev.write_refusal and "large-capacity" in dev.write_refusal
+    with pytest.raises(PackError):
+        dev.write_setting(dev.driver.table["cell_ov_protection"], 3600)
+
+
+def test_blank_and_implausible_reads_are_refused():
+    sim, dev = jbd()
+    sim.blank = True
+    with pytest.raises(BlankBlockError):
+        dev.read_block()
+    sim, dev = jbd()
+    sim.mem[0x2032] = 0
+    with pytest.raises(BlankBlockError, match="cells in series"):
+        dev.read_block()
+
+
+def test_protocol_zero_warns_and_uses_the_default_key():
+    _sim, dev = jbd(protocol=0)
+    b = dev.read_block()
+    assert dev.framing.key == 0x11 and dev.driver.identity_warnings(b)
+
+
+def test_clock_set_and_read_back():
+    sim, dev = jbd()
+    res = set_clock(dev, datetime(2026, 10, 24, 9, 30, 0))
+    assert res.ok and sim.writes[-1][0] == 0x2800 and len(sim.writes[-1][1]) == 6
+
+
+def test_backup_round_trip_and_serial_warning(tmp_path):
+    _sim, dev_a = jbd(serial="PACK-A")
+    _sim, dev_b = jbd(serial="PACK-B")
+    a, b = dev_a.read_block(), dev_b.read_block()
+    f = tmp_path / "a.json"
+    backup.save(f, a)
+    assert backup.load(f).block == a
+    assert any("PACK-A" in w and "PACK-B" in w for w in identity_warnings(b, a, "the backup"))
+
+
+def test_find_on_a_bus():
+    from packkeeper.drivers.jbd_up import DRIVER
+    from packkeeper.drivers.jbd_up.sim import FakeJbd, FakeJbdBus
+    from packkeeper.find import scan
+
+    bus = FakeJbdBus([FakeJbd(address=a, serial=f"P{a}") for a in (0, 2, 5)])
+    found = scan(DRIVER, bus, DRIVER.find_addresses, SessionLog())
+    assert [(f.address, f.serial) for f in found] == [(0, "P0"), (2, "P2"), (5, "P5")]
+
+
+def test_cli_info_and_dry_run(tmp_path, capsys):
+    from packkeeper.cli import main
+
+    assert main(["info", "--bms", "jbd-up", "--simulate", "--log-dir", str(tmp_path)]) == 0
+    out = capsys.readouterr().out
+    assert "JBD-UP16S010" in out and "SIM-PACK-1" in out
+    assert main(["set", "--bms", "jbd-up", "--simulate", "--dry-run", "--address", "0", "--log-dir", str(tmp_path),
+                 "cell_ov_protection", "3.6"]) == 0
+    out = capsys.readouterr().out
+    assert "00 79 18 06 18 08 00 06 11 4A 42 44 0E 10" in out and "broadcast" not in out

@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from .base import Driver, Profile
 from .eg4_ll import DRIVER as _EG4_LL
+from .jbd_up import DRIVER as _JBD_UP
 from .jk_pb import DRIVER as _JK_PB
 
 DEFAULT = "eg4-ll"
-DRIVERS: dict[str, Driver] = {d.name: d for d in (_EG4_LL, _JK_PB)}
+DRIVERS: dict[str, Driver] = {d.name: d for d in (_EG4_LL, _JK_PB, _JBD_UP)}
 
 __all__ = ["DEFAULT", "DRIVERS", "Driver", "Profile", "UnknownDriver", "get"]
 

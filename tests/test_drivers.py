@@ -250,7 +250,7 @@ def test_generic_code_never_imports_the_eg4_driver():
                 names = [node.module or ""] + [a.name for a in node.names]
             elif isinstance(node, ast.Import):
                 names = [a.name for a in node.names]
-            if any(name in n for name in ("eg4_ll", "jk_pb") for n in names):
+            if any(name in n for name in ("eg4_ll", "jk_pb", "jbd_up") for n in names):
                 offenders.append(f"{rel}:{node.lineno}")
     assert offenders == []
 
