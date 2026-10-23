@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, backup, drivers, qtcommon
+from . import __version__, backup, drivers, qtcommon, settings_view  # noqa: F401 - tests patch gui.settings_view
 from .block import Block
 from .device import ModbusDevice
 from .live import Live
@@ -53,13 +53,7 @@ from .session import SessionLog, default_log_path
 from .settings_view import SettingsTab
 from .transport import NoReply, list_ports
 
-DRIVER = drivers.get(drivers.DEFAULT)  # Task 5 replaces this with the BMS selector
-
 SIM_PORT = "Simulated pack (no hardware)"
-ONE_PACK_NOTE = (
-    "<b>One pack at a time.</b> Unplug the link cables from the pack's paralleling ports, then plug the "
-    "USB-RS232 adapter into its <b>right-most</b> paralleling port. The DIP ID can stay as it is."
-)
 
 
 # --- worker ----------------------------------------------------------------
@@ -204,7 +198,7 @@ class LiveTab(QWidget):
             return ", ".join(f"<b style='color:{color.name()}'>{x}</b>" for x in items)
 
         allowed = ""
-        if rt.charge_allowed is not None:
+        if rt.charge_allowed is not None and rt.discharge_allowed is not None:
             charge = "allowed" if rt.charge_allowed else f"<b style='color:{BAD.name()}'>BLOCKED</b>"
             discharge = "allowed" if rt.discharge_allowed else f"<b style='color:{BAD.name()}'>BLOCKED</b>"
             allowed = f" &nbsp;·&nbsp; charge {charge}, discharge {discharge}"
@@ -230,9 +224,11 @@ class LiveTab(QWidget):
             else:
                 lbl.setStyleSheet("")
         if rt.full_capacity_ah is not None:
+            design = f" (design {rt.design_capacity_ah:.1f} Ah)" if rt.design_capacity_ah is not None else ""
+            cycles = f" &nbsp;·&nbsp; <b>Cycles:</b> {rt.cycles}" if rt.cycles is not None else ""
             self.details.setText(
-                f"<b>Capacity:</b> {rt.remaining_ah} Ah remaining of {rt.full_capacity_ah:.1f} Ah full "
-                f"(design {rt.design_capacity_ah:.1f} Ah) &nbsp;·&nbsp; <b>Cycles:</b> {rt.cycles}"
+                f"<b>Capacity:</b> {rt.remaining_ah} Ah remaining of {rt.full_capacity_ah:.1f} Ah full"
+                f"{design}{cycles}"
             )
         else:
             self.details.setText("")
@@ -370,7 +366,7 @@ class ReviewDialog(QDialog):
         self.close_btn.setText("Close")
         f = self.main.fahrenheit
         if err is not None:
-            self.outcome.setText(f"<b style='color:{BAD.name()}'>Write failed:</b> {error_text(err)}")
+            self.outcome.setText(f"<b style='color:{BAD.name()}'>Write failed:</b> {error_text(err, self.main.driver)}")
             self.main.after_write(None)
             return
         self.result = res
@@ -429,13 +425,10 @@ class ClockTab(QWidget):
         row.addWidget(self.dry)
         row.addStretch(1)
         lay.addLayout(row)
-        note = QLabel(
-            "The BMS clock is local time packed as year-2000, month, day, hour, minute, second "
-            "(registers 0x2D-0x2E). Setting it is read back to confirm."
-        )
-        note.setWordWrap(True)
-        note.setStyleSheet("color: palette(placeholder-text);")
-        lay.addWidget(note)
+        self.note = QLabel()  # text set by MainWindow.driver_changed
+        self.note.setWordWrap(True)
+        self.note.setStyleSheet("color: palette(placeholder-text);")
+        lay.addWidget(self.note)
         self.result = QLabel()
         self.result.setTextFormat(Qt.TextFormat.RichText)
         lay.addWidget(self.result)
@@ -471,7 +464,7 @@ class ClockTab(QWidget):
 
     def on_clock_set(self, res, err):
         if err is not None:
-            self.result.setText(f"<b style='color:{BAD.name()}'>Failed:</b> {error_text(err)}")
+            self.result.setText(f"<b style='color:{BAD.name()}'>Failed:</b> {error_text(err, self.main.driver)}")
             return
         color = GOOD if res.ok else BAD
         self.result.setText(
@@ -497,7 +490,8 @@ class MainWindow(QMainWindow):
         central = QWidget()
         lay = QVBoxLayout(central)
 
-        note = QLabel(ONE_PACK_NOTE)
+        note = QLabel()
+        self.note = note
         note.setWordWrap(True)
         note.setTextFormat(Qt.TextFormat.RichText)
         note.setStyleSheet(
@@ -507,6 +501,12 @@ class MainWindow(QMainWindow):
         lay.addWidget(note)
 
         bar = QHBoxLayout()
+        bar.addWidget(QLabel("BMS:"))
+        self.bms = QComboBox()
+        for d in drivers.DRIVERS.values():
+            self.bms.addItem(d.label, d.name)
+        self.bms.setCurrentIndex(self.bms.findData(drivers.DEFAULT))
+        bar.addWidget(self.bms)
         bar.addWidget(QLabel("Port:"))
         self.ports = QComboBox()
         self.ports.setMinimumWidth(320)
@@ -525,7 +525,7 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.live = LiveTab()
-        self.settings = SettingsTab(self)
+        self.settings = SettingsTab(self, self.driver)
         self.clock = ClockTab(self)
         logw = QWidget()
         ll = QVBoxLayout(logw)
@@ -548,12 +548,14 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.clock, "Clock")
         self.tabs.addTab(logw, "Log")
         lay.addWidget(self.tabs, 1)
+        self.driver_changed()
         self.setCentralWidget(central)
 
         self.refresh_btn.clicked.connect(self.refresh_ports)
         self.connect_btn.clicked.connect(self.toggle_connect)
         self.fahrenheit_box.toggled.connect(self.units_changed)
         self.settings.review_requested.connect(self.review)
+        self.bms.currentIndexChanged.connect(self.driver_changed)
         self.worker.busy_changed.connect(self.on_busy)
 
         self.live_timer = QTimer(self)
@@ -573,6 +575,29 @@ class MainWindow(QMainWindow):
         self._last_rt: Live | None = None
 
     # helpers
+    @property
+    def driver(self):
+        return drivers.get(self.bms.currentData())
+
+    def driver_changed(self):
+        d = self.driver
+        self.note.setText(d.connect_note_html)
+        self.note.setVisible(bool(d.connect_note_html))
+        self.clock.note.setText(d.clock_note)
+        self.tabs.setTabVisible(self.tabs.indexOf(self.clock), d.supports_clock)
+        if self.settings.driver is not d:
+            self.install_settings(d)
+
+    def install_settings(self, driver):
+        old = self.settings
+        i = self.tabs.indexOf(old)
+        self.settings = SettingsTab(self, driver)
+        self.settings.review_requested.connect(self.review)
+        self.tabs.removeTab(i)
+        self.tabs.insertTab(i, self.settings, "Settings")
+        old.deleteLater()
+        self.settings.set_block(None)
+
     @property
     def fahrenheit(self) -> bool:
         return self.fahrenheit_box.isChecked()
@@ -617,12 +642,14 @@ class MainWindow(QMainWindow):
 
     def set_connected(self, on: bool):
         self.connect_btn.setText("Disconnect" if on else "Connect")
+        self.bms.setEnabled(not on)
         self.ports.setEnabled(not on)
         self.refresh_btn.setEnabled(not on)
         self.settings.read_btn.setEnabled(on)
         self.clock.set_btn.setEnabled(False)
         if not on:
             self.identity.setText("Not connected")
+            self.identity.setToolTip("")
             self.live_timer.stop()
             # Edits were made against this pack; never offer them to the next one.
             self.settings.staged.clear()
@@ -638,24 +665,26 @@ class MainWindow(QMainWindow):
         device = self.ports.currentData()
         if not device:
             return
+        driver = self.driver
         self.log = SessionLog(default_log_path(qtcommon.data_dir()))
         self._log_shown = 0
         self.log_view.clear()
         self.log_path.setText(f"Session log: {self.log.path}")
         try:
             if device == SIM_PORT:
-                transport = DRIVER.simulator()
+                transport = driver.simulator()
             else:
                 from .transport import SerialTransport
 
-                transport = SerialTransport(device, params=DRIVER.serial)
+                transport = SerialTransport(device, params=driver.serial)
         except Exception as e:  # noqa: BLE001
             self.log.error(f"cannot open {device}: {e}")
             QMessageBox.critical(self, "Cannot open port", f"Cannot open {device}:\n{e}")
             return
         self.port_name = device
+        self.log.info(f"BMS type {driver.label}")
         self.log.info(f"port {device}")
-        self.pack = DRIVER.open_device(transport, self.log)
+        self.pack = driver.open_device(transport, self.log)
         self.set_connected(True)
         self.status(f"Connected to {device}. Reading the pack…")
         self.read_settings()
@@ -684,11 +713,19 @@ class MainWindow(QMainWindow):
             self.settings.set_block(None)
             self.clock.show_block(None)
             self.identity.setText("No valid read")
-            QMessageBox.warning(self, "Could not read the pack's settings", error_text(err))
+            self.identity.setToolTip("")
+            QMessageBox.warning(self, "Could not read the pack's settings", error_text(err, self.driver))
             return
         self.settings.set_block(block)
         self.clock.show_block(block)
-        self.identity.setText(f"<b>{block.model}</b> · firmware {block.firmware}")
+        warnings = block.driver.identity_warnings(block)
+        for warning in warnings:
+            self.log.warn(warning)
+        text = f"<b>{block.model}</b> · firmware {block.firmware}"
+        if warnings:
+            text += f" · <b style='color:{WARN.name()}'>check BMS type</b>"
+        self.identity.setText(text)
+        self.identity.setToolTip("\n".join(warnings))
         if not self.live_timer.isActive() and QApplication.activeModalWidget() is None:
             self.poll_live()
             self.live_timer.start(2000)
@@ -708,8 +745,7 @@ class MainWindow(QMainWindow):
             self.live_timer.stop()
             self.live.updated.setText(f"Live view paused: {err}. Click Read again on the Settings tab to retry.")
             if isinstance(err, NoReply):
-                self.status("The pack is not answering. Check the link cables are unplugged and the adapter "
-                            "is in the right-most paralleling port.", error=True)
+                self.status(f"The pack is not answering. {self.pack.driver.no_reply_hint}", error=True)
             return
         self._last_rt = rt
         self.live.show_realtime(rt, self.fahrenheit)
@@ -734,7 +770,7 @@ class MainWindow(QMainWindow):
 
         def job():
             block = pack.read_block()
-            plan = make_plan(block, targets, fahrenheit=fahrenheit)
+            plan = make_plan(block, targets, fahrenheit=fahrenheit, source=src.block if from_source else None)
             if from_source:
                 plan.warnings[:0] = identity_warnings(block, src.block, "the comparison source")
             for w in plan.warnings:
@@ -747,7 +783,7 @@ class MainWindow(QMainWindow):
 
         def done(result, err):
             if err is not None:
-                QMessageBox.warning(self, "Could not read the pack", error_text(err))
+                QMessageBox.warning(self, "Could not read the pack", error_text(err, self.driver))
                 return
             block, plan = result
             self.settings.set_block(block)

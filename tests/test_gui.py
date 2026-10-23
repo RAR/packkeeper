@@ -252,3 +252,33 @@ def test_silent_port_pauses_live_and_keeps_disconnect(window, monkeypatch):
     assert w.connect_btn.isEnabled()
     w.toggle_connect()  # disconnect
     assert w.pack is None
+
+
+def test_bms_selector_shows_the_driver_and_locks_while_connected(window):
+    app, w = window
+    assert w.bms.currentData() == "eg4-ll" and w.bms.currentText() == "EG4-LL"
+    assert w.settings.driver.name == "eg4-ll"
+    connect_sim(app, w)
+    assert not w.bms.isEnabled()
+    w.toggle_connect()
+    assert w.bms.isEnabled()
+
+
+def test_backup_from_another_bms_is_not_offered(window, monkeypatch, tmp_path):
+    app, w = window
+    connect_sim(app, w)
+    from eg4tool import backup
+    from eg4tool.block import Block
+
+    class Other:
+        label = "Other BMS"
+    foreign = Block.__new__(Block)
+    object.__setattr__(foreign, "driver", Other())
+    object.__setattr__(foreign, "registers", w.settings.block.registers)
+    monkeypatch.setattr(backup, "load", lambda p: backup.Backup(foreign, "now", "x"))
+    monkeypatch.setattr(gui.settings_view.QFileDialog, "getOpenFileName", lambda *a, **k: (str(tmp_path / "x.json"), ""))
+    errors = []
+    monkeypatch.setattr(gui.settings_view.QMessageBox, "critical", lambda *a: errors.append(a[2]))
+    n = len(w.settings.sources)
+    assert w.settings.open_backup() is False
+    assert len(w.settings.sources) == n and "Other BMS" in errors[0]

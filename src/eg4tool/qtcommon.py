@@ -8,7 +8,7 @@ from PySide6.QtCore import QStandardPaths
 from PySide6.QtGui import QColor
 
 from . import backup, drivers
-from .block import BlankBlockError
+from .block import BlankBlockError, DriverMismatch
 from .service import StaleError
 from .settings import SettingError
 from .transport import NoReply
@@ -29,9 +29,10 @@ def data_dir() -> Path:
     return d
 
 
-def error_text(e: Exception) -> str:
+def error_text(e: Exception, driver=None) -> str:
     if isinstance(e, NoReply):
-        return f"{e}\n\n{drivers.get(drivers.DEFAULT).connection_help}"
-    if isinstance(e, (BlankBlockError, StaleError, SettingError, backup.BackupError)):
+        help_text = (driver or drivers.get(drivers.DEFAULT)).connection_help
+        return f"{e}\n\n{help_text}" if help_text else str(e)
+    if isinstance(e, (BlankBlockError, StaleError, SettingError, backup.BackupError, DriverMismatch)):
         return str(e)
     return f"{type(e).__name__}: {e}"

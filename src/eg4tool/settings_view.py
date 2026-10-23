@@ -33,21 +33,17 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import backup, drivers, qtcommon
+from . import backup, qtcommon
 from .block import Block
 from .layout import COLUMN_HELP, TEMP, Page
 from .planner import Plan, identity_warnings, make_plan, targets_from_block
 from .qtcommon import ACCENT, BAD, WARN
-from .settings import LINKED_PAIRS, SETTINGS, SettingError
+from .settings import SettingError, SettingTable
 
 if TYPE_CHECKING:
     from .gui import MainWindow
 
-DRIVER = drivers.get(drivers.DEFAULT)  # Task 5 replaces this
-PAGES, ORDERED_KEYS, PAGE_OF = DRIVER.pages, DRIVER.ordered_keys, DRIVER.page_of
-
 FIELD_WIDTH = 104
-PARTNER = {a: b for a, b in LINKED_PAIRS} | {b: a for a, b in LINKED_PAIRS}
 
 STYLE = f"""
 QLineEdit#value {{
@@ -150,9 +146,10 @@ class SettingField(QWidget):
 class SettingsPage(QScrollArea):
     """One page: its sections laid out on a single grid so columns line up."""
 
-    def __init__(self, page: Page, fields: dict[str, SettingField]):
+    def __init__(self, page: Page, fields: dict[str, SettingField], table: SettingTable):
         super().__init__()
         self.page = page
+        self.table = table
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.Shape.NoFrame)
         body = QWidget()
@@ -187,7 +184,7 @@ class SettingsPage(QScrollArea):
             for label, keys in section.rows:
                 lbl = QLabel(label)
                 lbl.setFixedHeight(line)
-                lbl.setToolTip("\n".join(f"{SETTINGS[k].label}: {k} (0x{SETTINGS[k].register:02X})" for k in keys if k))
+                lbl.setToolTip("\n".join(f"{table[k].label}: {k} (0x{table[k].register:02X})" for k in keys if k))
                 grid.addWidget(lbl, row, 0, Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
                 for c, key in enumerate(keys):
                     if key is None:
@@ -224,7 +221,7 @@ class SettingsPage(QScrollArea):
         for label, keys in self.range_labels:
             parts = []
             for k in keys:
-                s = SETTINGS[k]
+                s = self.table[k]
                 text = f"{s.format(s.raw_min, fahrenheit)} – {s.format(s.raw_max, fahrenheit)}"
                 if text not in parts:
                     parts.append(text)
@@ -250,12 +247,14 @@ def _drop(w: QWidget | None) -> None:
 class SettingsTab(QWidget):
     review_requested = Signal()
 
-    def __init__(self, main: "MainWindow"):
+    def __init__(self, main: "MainWindow", driver):
         super().__init__()
         self.main = main
+        self.driver = driver
+        self.table: SettingTable = driver.table
         self.block: Block | None = None
         self.read_at: datetime | None = None
-        self.sources: list[Source] = [Source(p.short, p.block, p.label) for p in DRIVER.profiles.values()]
+        self.sources: list[Source] = [Source(p.short, p.block, p.label) for p in driver.profiles.values()]
         self.staged: dict[str, int] = {}
         self.bad: dict[str, tuple[str, str]] = {}  # key -> (text typed, why it was refused)
         self.plan: Plan | None = None
@@ -273,12 +272,12 @@ class SettingsTab(QWidget):
         self.nav.setStyleSheet("QListWidget { background: transparent; } QListWidget::item { padding: 2px; }")
         self.stack = QStackedWidget()
         self.fields: dict[str, SettingField] = {}
-        for key in ORDERED_KEYS:
+        for key in driver.ordered_keys:
             f = SettingField(key)
             f.committed.connect(self.on_commit)
             f.link.connect(self.on_field_link)
             self.fields[key] = f
-        self.pages = [SettingsPage(p, self.fields) for p in PAGES]
+        self.pages = [SettingsPage(p, self.fields, self.table) for p in driver.pages]
         self.nav_widgets: list[tuple[QLabel, QHBoxLayout]] = []
         for page in self.pages:
             self.stack.addWidget(page)
@@ -417,7 +416,7 @@ class SettingsTab(QWidget):
 
     def stage(self, key: str, raw: int):
         """Stage `raw` for `key`; the linked register follows."""
-        for k in (key, PARTNER.get(key)):
+        for k in (key, self.table.partner(key)):
             if k is None:
                 continue
             self.bad.pop(k, None)
@@ -427,7 +426,7 @@ class SettingsTab(QWidget):
                 self.staged[k] = raw
 
     def unstage(self, key: str):
-        for k in (key, PARTNER.get(key)):
+        for k in (key, self.table.partner(key)):
             if k is not None:
                 self.staged.pop(k, None)
                 self.bad.pop(k, None)
@@ -435,7 +434,7 @@ class SettingsTab(QWidget):
     def on_commit(self, key: str, text: str):
         if self.block is None:
             return
-        s = SETTINGS[key]
+        s = self.table[key]
         if not text:
             self.unstage(key)
         else:
@@ -450,10 +449,11 @@ class SettingsTab(QWidget):
                 self.main.status(str(e), error=True)
             else:
                 self.stage(key, raw)
-                if key in PARTNER and key in self.staged:
+                pair = self.table.pair(key)
+                if pair is not None and key in self.staged:
+                    other = self.table.partner(key)
                     self.main.status(
-                        f"{SETTINGS[key].label} and {SETTINGS[PARTNER[key]].label} are set together "
-                        "(which of 0x52 / 0x54 is which is not settled yet)."
+                        f"{self.table[key].label} and {self.table[other].label} are set together ({pair.reason})."
                     )
         self.refresh()
 
@@ -473,8 +473,8 @@ class SettingsTab(QWidget):
             self.on_field_link(key, action)
 
     def show_field(self, key: str):
-        self.nav.setCurrentRow(PAGE_OF[key])
-        self.pages[PAGE_OF[key]].ensureWidgetVisible(self.fields[key])
+        self.nav.setCurrentRow(self.driver.page_of[key])
+        self.pages[self.driver.page_of[key]].ensureWidgetVisible(self.fields[key])
         self.fields[key].edit.setFocus()
         self.fields[key].edit.selectAll()
 
@@ -503,7 +503,7 @@ class SettingsTab(QWidget):
         problems = self.plan.problem_keys if self.plan else set()
 
         for key, field in self.fields.items():
-            s = SETTINGS[key]
+            s = self.table[key]
             if block is None:
                 field.show_value("", "", "", s.label, False, False)
                 continue
@@ -556,7 +556,7 @@ class SettingsTab(QWidget):
         self.copy_btn.setEnabled(has)
 
     def _render_nav(self, src: Source | None, problems: set[str]):
-        for page, (_name, h) in zip(PAGES, self.nav_widgets):
+        for page, (_name, h) in zip(self.driver.pages, self.nav_widgets):
             while h.count() > 2:  # name, stretch, then pills
                 _drop(h.takeAt(2).widget())
             keys = page.keys
@@ -591,10 +591,10 @@ class SettingsTab(QWidget):
                 f"<p style='color:{hint_color}'>No changes. Type a new value into any field, or stage the "
                 "differences from a comparison.</p>"
             )
-        for key in ORDERED_KEYS:
+        for key in self.driver.ordered_keys:
             if key not in self.staged:
                 continue
-            s = SETTINGS[key]
+            s = self.table[key]
             mark = f"<b style='color:{BAD.name()}'>!&nbsp;</b>" if key in problems else ""
             html.append(
                 f"<p>{mark}<a href='go:{key}' style='color:{text_color}; text-decoration:none'><b>{s.label}</b></a>"
@@ -603,7 +603,7 @@ class SettingsTab(QWidget):
             )
 
         issues = [
-            f"<a href='go:{k}' style='color:{BAD.name()}'>{SETTINGS[k].label}</a>: {why}"
+            f"<a href='go:{k}' style='color:{BAD.name()}'>{self.table[k].label}</a>: {why}"
             for k, (_t, why) in self.bad.items()
         ]
         if self.plan is not None and self.staged:
@@ -619,7 +619,7 @@ class SettingsTab(QWidget):
         # Comparison box.
         self.ref_box.setVisible(src is not None and self.block is not None)
         if src is not None and self.block is not None:
-            diff = [k for k in ORDERED_KEYS if src.block.raw(k) != self.block.raw(k)]
+            diff = [k for k in self.driver.ordered_keys if src.block.raw(k) != self.block.raw(k)]
             pending = [k for k in diff if self.staged.get(k) != src.block.raw(k)]
             lines = [f"<b>{src.name}</b>"]
             if not diff:
@@ -646,14 +646,14 @@ class SettingsTab(QWidget):
     def save_backup(self):
         if self.block is None:
             return
-        default = qtcommon.data_dir() / f"eg4-backup-{datetime.now():%Y%m%d-%H%M%S}.json"
+        default = qtcommon.data_dir() / f"{self.driver.name}-backup-{datetime.now():%Y%m%d-%H%M%S}.json"
         path, _ = QFileDialog.getSaveFileName(self, "Save backup", str(default), "Backup (*.json)")
         if not path:
             return
         try:
             backup.save(Path(path), self.block, port=self.main.port_name)
         except Exception as e:  # noqa: BLE001
-            QMessageBox.critical(self, "Backup failed", qtcommon.error_text(e))
+            QMessageBox.critical(self, "Backup failed", qtcommon.error_text(e, self.driver))
             return
         self.main.log_result(f"backup saved to {path}")
         self.main.status(f"Backup saved to {path}")
@@ -668,6 +668,13 @@ class SettingsTab(QWidget):
             b = backup.load(Path(path))
         except backup.BackupError as e:
             QMessageBox.critical(self, "Cannot use this file", str(e))
+            return False
+        if b.block.driver is not self.driver:
+            QMessageBox.critical(
+                self, "Cannot use this file",
+                f"This backup is from a {b.block.driver.label} BMS; the selected BMS type is {self.driver.label}. "
+                "Settings never move between different BMS types.",
+            )
             return False
         self.add_source(Source(Path(path).name, b.block, f"{path}\nsaved {b.created}, {b.block.model} {b.block.firmware}"))
         return True
@@ -686,7 +693,6 @@ class SettingsTab(QWidget):
             self, "Copy to another pack",
             "This pack's settings are kept as the comparison.\n\n"
             "1. Disconnect and plug this pack's link cables back in.\n"
-            "2. On the target pack: link cables unplugged, adapter in its right-most "
-            "paralleling port. Connect.\n"
+            f"2. On the target pack: {self.driver.setup_hint}. Connect.\n"
             "3. Here, click \"Stage all differences\", then \"Review and write…\".",
         )
