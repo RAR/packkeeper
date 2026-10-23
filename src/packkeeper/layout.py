@@ -32,6 +32,7 @@ class Page:
     title: str
     sections: tuple[Section, ...]
     note: str = ""
+    unsafe: bool = False  # shown only while unsafe settings are on
 
     @property
     def keys(self) -> list[str]:

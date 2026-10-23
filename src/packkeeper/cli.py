@@ -81,6 +81,8 @@ def build_parser() -> argparse.ArgumentParser:
     common.add_argument("--address", type=int, metavar="N", help="Modbus address, for BMS types that have one to choose")
     common.add_argument("-F", "--fahrenheit", action="store_true", help="show temperatures in °F (input too)")
     common.add_argument("--log-dir", help="where to write the session log (default: next to the file, else here)")
+    common.add_argument("--unsafe", action="store_true",
+                        help="allow changing unsafe settings (each is confirmed by typing 'unsafe')")
     write = argparse.ArgumentParser(add_help=False)
     write.add_argument("-n", "--dry-run", action="store_true", help="show the diff and the frames, write nothing")
 
@@ -302,7 +304,7 @@ def skip_set(text: str, table: SettingTable) -> set[str]:
 def cmd_restore(args) -> int:
     source, name = load_source(args)
     pack = open_pack(args, near=args.file)
-    return run_write(pack, targets_from_block(source, skip_set(args.skip, driver_of(args).table)), name, args, source=source)
+    return run_write(pack, targets_from_block(source, skip_set(args.skip, driver_of(args).table), args.unsafe), name, args, source=source)
 
 
 def cmd_copy(args) -> int:
@@ -318,7 +320,7 @@ def cmd_copy(args) -> int:
     pack.log.result(f"source backup saved to {save}")
     print(f"Source saved to {save}\n")
     confirm_enter(f"Move the adapter to the TARGET pack ({driver.setup_hint}), then press Enter")
-    return run_write(pack, targets_from_block(source, skip), f"source pack ({save})", args, source=source)
+    return run_write(pack, targets_from_block(source, skip, args.unsafe), f"source pack ({save})", args, source=source)
 
 
 def confirm_enter(prompt: str) -> None:
@@ -349,11 +351,15 @@ def run_write(pack: ModbusDevice, targets: dict[str, int], source_name: str, arg
     f = args.fahrenheit
     block = pack.read_block()
     print_identity(block)
-    plan = make_plan(block, targets, fahrenheit=f, source=source)
+    plan = make_plan(block, targets, fahrenheit=f, source=source, allow_unsafe=args.unsafe)
     if source is not None:
         plan.warnings[:0] = identity_warnings(block, source, "the source")
     print(f"\nSource: {source_name}")
     print_plan(plan, f)
+    if source is not None and not args.unsafe:
+        left = [k for k in block.driver.table.unsafe_keys if source.raw(k) != block.raw(k)]
+        if left:
+            print(f"note: {len(left)} unsafe setting(s) differ and were left alone (use --unsafe to include them)")
     for line in plan.warnings:
         pack.log.warn(line)
     for line in plan.errors:
@@ -382,11 +388,16 @@ def run_write(pack: ModbusDevice, targets: dict[str, int], source_name: str, arg
         backup.save(pre, block, port=getattr(pack.transport, "port", None))
         print(f"\nThe pack's current settings were saved to {pre}")
     warn_broadcast(pack)
+    word = "unsafe" if plan.unsafe else "yes"
+    if plan.unsafe:
+        print("\nUNSAFE changes in this plan:")
+        for c in plan.unsafe:
+            print(f"  {c.describe(f)}\n    {c.setting.unsafe}")
     try:
-        answer = input(f"\nType 'yes' to write {len(plan.changes)} setting(s) to this pack: ")
+        answer = input(f"\nType '{word}' to write {len(plan.changes)} setting(s) to this pack: ")
     except EOFError:
         answer = ""
-    if answer.strip().lower() != "yes":
+    if answer.strip().lower() != word:
         print("Nothing was written.")
         pack.log.info("not confirmed; nothing written")
         return 1
@@ -487,7 +498,11 @@ def cmd_keys(args) -> int:
             group = s.group
             print(f"\n{group}")
         rng = f"{s.format(s.raw_min, f)} .. {s.format(s.raw_max, f)}"
-        print(f"  {key:38s} 0x{s.register:02X}  {rng:24s} step {s.step}")
+        print(f"  {key:38s} 0x{s.register:02X}  {rng:24s} step {s.step}" + (" [unsafe]" if s.unsafe else ""))
+        if s.choices:
+            print(f"    choices: {', '.join(n for _r, n in s.choices)}")
+        if s.bits:
+            print(f"    bits: {', '.join(f'0x{m:04X} {n}' for m, n in s.bits)}")
     return 0
 
 

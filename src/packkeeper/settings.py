@@ -38,6 +38,9 @@ class Setting:
     signed: bool = False
     stride: int = 1  # address step between its registers
     word_order: str = "high_first"  # or "low_first"
+    unsafe: str | None = None  # why changing it is risky; None for an ordinary setting
+    choices: tuple[tuple[int, str], ...] | None = None  # named values
+    bits: tuple[tuple[int, str], ...] | None = None  # named bit masks
 
     @property
     def is_temperature(self) -> bool:
@@ -115,6 +118,11 @@ class Setting:
 
     def limit_error(self, raw: int) -> str | None:
         """Why `raw` may not be written, or None if LIMITS allow it."""
+        if self.choices is not None:
+            names = dict(self.choices)
+            if raw not in names:
+                return f"{self.label} {raw} is not one of: {', '.join(names.values())}"
+            return None
         if not self.raw_min <= raw <= self.raw_max:
             return (
                 f"{self.label} {self.format(raw)} is outside the safe range "
@@ -126,6 +134,11 @@ class Setting:
         return None
 
     def format(self, raw: int, fahrenheit: bool = False, unit: bool = True) -> str:
+        if self.choices is not None:
+            return dict(self.choices).get(raw, f"unknown ({raw})")
+        if self.bits is not None:
+            names = [name for mask, name in self.bits if raw & mask == mask]
+            return f"0x{raw:04X} ({', '.join(names) or 'none'})"
         v = self.value(raw)
         if self.is_temperature and fahrenheit:
             f = c_to_f(v)
@@ -137,6 +150,25 @@ class Setting:
 
     def parse(self, text: str, fahrenheit: bool = False) -> int:
         """Raw value for user input such as '3.65', '3.65V', '140F' or '60C'."""
+        if self.choices is not None:
+            s = text.strip()
+            for raw, name in self.choices:
+                if s.lower() == name.lower():
+                    return raw
+            try:
+                return int(s, 0)
+            except ValueError:
+                raise SettingError(f"{self.label}: '{text}' is not one of: {', '.join(n for _r, n in self.choices)}") from None
+        if self.bits is not None:
+            s = text.strip().split(" (", 1)[0]
+            try:
+                raw = int(s, 0)
+            except ValueError:
+                raise SettingError(f"{self.label}: '{text}' is not a number") from None
+            lo, hi = self.raw_bounds
+            if not lo <= raw <= hi:
+                raise SettingError(f"{self.label}: {raw} does not fit the register")
+            return raw
         s = text.strip().replace(" ", "")
         in_f = fahrenheit and self.is_temperature
         for suffix, is_f in (("°F", True), ("F", True), ("°C", False), ("C", False)):
@@ -238,9 +270,16 @@ class SettingTable:
         label: Callable[[str], str] | None = None,
         stride: int = 1,
         word_order: str = "high_first",
+        unsafe: dict[str, str] | None = None,
+        choices: dict[str, dict[int, str]] | None = None,
+        bits: dict[str, dict[int, str]] | None = None,
     ) -> "SettingTable":
         """From an esphome-style table: key -> (register, multiplier, offset, unit, class, decimals[, width, signed])."""
         overrides = overrides or {}
+        for extra in (unsafe, choices, bits):
+            for k in extra or {}:
+                if k not in table:
+                    raise ValueError(f"unknown setting '{k}'")
         settings = {}
         for key, (reg, mult, offset, unit, _cls, decimals, *wide) in table.items():
             width = wide[0] if wide else 1
@@ -262,6 +301,9 @@ class SettingTable:
                 signed=signed,
                 stride=stride,
                 word_order=word_order,
+                unsafe=(unsafe or {}).get(key),
+                choices=tuple(sorted((choices or {})[key].items())) if key in (choices or {}) else None,
+                bits=tuple(sorted((bits or {})[key].items())) if key in (bits or {}) else None,
             )
         return cls(settings, [Rule(lo, hi, strict) for lo, hi, strict in order], list(linked))
 
@@ -290,6 +332,10 @@ class SettingTable:
 
     def __len__(self) -> int:
         return len(self.settings)
+
+    @property
+    def unsafe_keys(self) -> list[str]:
+        return [k for k, s in self.settings.items() if s.unsafe]
 
     def get(self, key: str) -> Setting | None:
         return self.settings.get(key)

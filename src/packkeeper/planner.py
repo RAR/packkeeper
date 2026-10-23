@@ -61,6 +61,10 @@ class Plan:
         return not self.changes
 
     @property
+    def unsafe(self) -> list[Change]:
+        return [c for c in self.changes if c.setting.unsafe]
+
+    @property
     def result(self) -> Block:
         return self.base.with_raws({c.register: c.new for c in self.changes})
 
@@ -76,6 +80,7 @@ def make_plan(
     linked: list[LinkedPair] | None = None,
     fahrenheit: bool = False,
     source: Block | None = None,
+    allow_unsafe: bool = False,
 ) -> Plan:
     """Plan writes that take `base` to `targets` ({setting key: raw})."""
     if source is not None:
@@ -98,6 +103,10 @@ def make_plan(
             plan.errors.append(f"{s.label}: register 0x{blocked[0]:02X} is not writable")
             continue
         if raw == current[key]:
+            continue
+        if s.unsafe and not allow_unsafe:
+            plan.errors.append(f"{s.label} is an unsafe setting; turn on unsafe settings to change it")
+            plan.problem_keys.add(key)
             continue
         err = s.limit_error(raw)
         if err:
@@ -190,10 +199,12 @@ def _order(
     return order, {}
 
 
-def targets_from_block(source: Block, skip: set[str] = frozenset()) -> dict[str, int]:
-    """Every known setting of `source`; unknown registers are never included."""
+def targets_from_block(source: Block, skip: set[str] = frozenset(), allow_unsafe: bool = False) -> dict[str, int]:
+    """Every known setting of `source`; unknown registers are never included,
+    and unsafe settings only when asked for."""
     source.check_not_blank()
-    return {k: source.raw(k) for k in source.driver.table if k not in skip}
+    table = source.driver.table
+    return {k: source.raw(k) for k in table if k not in skip and (allow_unsafe or not table[k].unsafe)}
 
 
 def identity_warnings(pack: Block, source: Block, source_name: str) -> list[str]:
