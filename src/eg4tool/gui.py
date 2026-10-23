@@ -42,7 +42,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, backup, drivers, qtcommon, settings_view  # noqa: F401 - tests patch gui.settings_view
+from . import __version__, backup, drivers, qtcommon, settings_view
 from .block import Block
 from .device import ModbusDevice
 from .live import Live
@@ -50,7 +50,6 @@ from .planner import Plan, identity_warnings, make_plan
 from .qtcommon import APP_NAME, BAD, GOOD, WARN, error_text
 from .service import CONFIRMED, NOT_APPLIED, UNVERIFIED, ApplyResult, apply_plan, set_clock
 from .session import SessionLog, default_log_path
-from .settings_view import SettingsTab
 from .transport import NoReply, list_ports
 
 SIM_PORT = "Simulated pack (no hardware)"
@@ -439,11 +438,15 @@ class ClockTab(QWidget):
         t.start(500)
 
     def show_block(self, block: Block | None):
-        if block is None:
+        has_clock = block is not None and block.driver.supports_clock
+        if not has_clock:
             self.bms.setText("—")
+        elif block.clock:
+            self.bms.setText(str(block.clock))
         else:
-            self.bms.setText(str(block.clock) if block.clock else f"invalid (0x{block.clock_raw:08X})")
-        self.set_btn.setEnabled(block is not None)
+            raw = block.clock_raw
+            self.bms.setText("invalid" if raw is None else f"invalid (0x{raw:08X})")
+        self.set_btn.setEnabled(has_clock)
 
     def set_clock(self):
         now = datetime.now().replace(microsecond=0)
@@ -525,7 +528,7 @@ class MainWindow(QMainWindow):
 
         self.tabs = QTabWidget()
         self.live = LiveTab()
-        self.settings = SettingsTab(self, self.driver)
+        self.settings = settings_view.SettingsTab(self, self.driver)
         self.clock = ClockTab(self)
         logw = QWidget()
         ll = QVBoxLayout(logw)
@@ -591,10 +594,13 @@ class MainWindow(QMainWindow):
     def install_settings(self, driver):
         old = self.settings
         i = self.tabs.indexOf(old)
-        self.settings = SettingsTab(self, driver)
+        was_current = self.tabs.currentWidget() is old
+        self.settings = settings_view.SettingsTab(self, driver)
         self.settings.review_requested.connect(self.review)
         self.tabs.removeTab(i)
         self.tabs.insertTab(i, self.settings, "Settings")
+        if was_current:
+            self.tabs.setCurrentWidget(self.settings)
         old.deleteLater()
         self.settings.set_block(None)
 
@@ -621,6 +627,8 @@ class MainWindow(QMainWindow):
     def on_busy(self, busy: bool):
         # Disconnect stays available while a read waits on a silent port.
         self.connect_btn.setEnabled(not busy or self.pack is not None)
+        # A result still in flight after a disconnect belongs to that BMS type.
+        self.bms.setEnabled(not busy and self.pack is None)
         self.settings.read_btn.setEnabled(not busy and self.pack is not None)
         if busy:
             QGuiApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
@@ -642,7 +650,7 @@ class MainWindow(QMainWindow):
 
     def set_connected(self, on: bool):
         self.connect_btn.setText("Disconnect" if on else "Connect")
-        self.bms.setEnabled(not on)
+        self.bms.setEnabled(not on and not self.worker.busy)
         self.ports.setEnabled(not on)
         self.refresh_btn.setEnabled(not on)
         self.settings.read_btn.setEnabled(on)
@@ -695,7 +703,10 @@ class MainWindow(QMainWindow):
         pack = self.pack
         self.pack = None
         if pack is not None:
-            self.worker.submit(pack.close, lambda *_: None)
+            if self.worker.busy:  # close after the job holding the port
+                self.worker.submit(pack.close, lambda *_: None)
+            else:
+                pack.close()
             pack.log.info("disconnected")
         self.set_connected(False)
         self.status("Disconnected.")
@@ -782,6 +793,8 @@ class MainWindow(QMainWindow):
             return block, plan
 
         def done(result, err):
+            if self.pack is None:  # disconnected while the read was waiting
+                return
             if err is not None:
                 QMessageBox.warning(self, "Could not read the pack", error_text(err, self.driver))
                 return

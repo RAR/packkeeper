@@ -86,8 +86,10 @@ def test_eg4_pages_cover_every_setting_once():
 import json  # noqa: E402
 
 from eg4tool import backup  # noqa: E402
+from eg4tool.block import DriverMismatch  # noqa: E402
 from eg4tool.drivers.eg4_ll import DRIVER as EG4_LL  # noqa: E402
 from eg4tool.planner import make_plan  # noqa: E402
+from eg4tool.service import diff_blocks  # noqa: E402
 
 REF = EG4_LL.profiles["eg4-shipped"].block
 
@@ -146,3 +148,91 @@ def test_cli_profile_names_come_from_the_driver(tmp_path, capsys):
     from eg4tool.cli import main
     assert main(["diff", "--profile", "nope", "--simulate", "--log-dir", str(tmp_path)]) == 2
     assert "eg4-shipped" in capsys.readouterr().err
+
+
+import ast
+
+from eg4tool import drivers
+from eg4tool.planner import targets_from_block
+from eg4tool.service import CONFIRMED, NOT_APPLIED, apply_plan
+from eg4tool.session import SessionLog
+
+from toy_driver import TOY  # tests/ is on sys.path under pytest's rootdir conftest-less mode
+
+TOY_REF = TOY.profiles["toy-default"].block
+
+
+def toy_device(**kw):
+    sim = TOY.simulator()
+    for k, v in kw.items():
+        setattr(sim, k, v)
+    return sim, TOY.open_device(sim, SessionLog())
+
+
+def test_toy_plan_moves_a_chain_up_top_first():
+    p = make_plan(TOY_REF, {"high_cut": 370, "top_cut": 380})
+    assert p.ok, p.errors
+    assert [c.key for c in p.changes] == ["top_cut", "high_cut"]
+
+
+def test_toy_rules_and_limits_are_the_toys():
+    assert not make_plan(TOY_REF, {"high_cut": 290}).ok  # below its 3.30 V floor and below low_cut
+    p = make_plan(TOY_REF, {"trip_a": 120})
+    assert not p.ok and "toy pair" in p.errors[0]
+    assert make_plan(TOY_REF, {"trip_a": 120, "trip_b": 120}).ok
+
+
+def test_toy_write_is_read_back_and_addressed_to_7():
+    sim, dev = toy_device()
+    res = apply_plan(dev, make_plan(dev.read_block(), {"low_cut": 290}))
+    assert res.ok and res.results[0].status == CONFIRMED and sim.image[0x101] == 290
+    tx = [line.split(None, 2)[2] for line in dev.log.lines if line.split(None, 2)[1] == "TX"]
+    assert any(frame.startswith("07 10 01 01") for frame in tx)
+
+
+def test_toy_dropped_write_is_not_applied():
+    sim, dev = toy_device(floors={0x106: 110})
+    res = apply_plan(dev, make_plan(dev.read_block(), {"hot_cut": 90}))  # raw 90 = 50 °C, below the floor
+    assert res.results[0].status == NOT_APPLIED
+
+
+def test_toy_backup_roundtrip(tmp_path, monkeypatch):
+    f = tmp_path / "toy.json"
+    backup.save(f, TOY_REF)
+    assert json.loads(f.read_text())["bms"] == "toy"
+    with pytest.raises(backup.BackupError, match="toy"):
+        backup.load(f)  # not registered
+    monkeypatch.setitem(drivers.DRIVERS, "toy", TOY)
+    b = backup.load(f)
+    assert b.block.driver is TOY and b.block == TOY_REF
+
+
+def test_nothing_crosses_between_bms_types():
+    with pytest.raises(DriverMismatch):
+        diff_blocks(REF, TOY_REF)
+    with pytest.raises(DriverMismatch):
+        make_plan(REF, targets_from_block(TOY_REF), source=TOY_REF)
+    from eg4tool.planner import identity_warnings
+    with pytest.raises(DriverMismatch):
+        identity_warnings(REF, TOY_REF, "the backup")
+    _sim, dev = toy_device()
+    with pytest.raises(DriverMismatch):
+        apply_plan(dev, make_plan(REF, {"cell_overvoltage_warning": 3650}))
+    assert _sim.writes == []
+
+
+def test_generic_code_never_imports_the_eg4_driver():
+    offenders = []
+    for path in SRC.rglob("*.py"):
+        rel = path.relative_to(SRC)
+        if rel.parts[0] == "drivers":
+            continue
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            names = []
+            if isinstance(node, ast.ImportFrom):
+                names = [node.module or ""] + [a.name for a in node.names]
+            elif isinstance(node, ast.Import):
+                names = [a.name for a in node.names]
+            if any("eg4_ll" in n for n in names):
+                offenders.append(f"{rel}:{node.lineno}")
+    assert offenders == []

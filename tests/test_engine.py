@@ -16,8 +16,9 @@ from eg4tool.modbus import registers_of
 from eg4tool.planner import make_plan, targets_from_block
 from eg4tool.service import CONFIRMED, NOT_APPLIED, NOT_ATTEMPTED, StaleError, apply_plan, diff_blocks, set_clock
 from eg4tool.session import SessionLog
-from eg4tool.settings import ORDER, SETTINGS, Rule, SettingError, f_to_c_exact
+from eg4tool.settings import Rule, SettingError, f_to_c_exact
 
+SETTINGS, ORDER = EG4_LL.table, EG4_LL.table.order
 FRAMES = Path(__file__).parent / "rs232_service_frames.txt"
 REF = EG4_LL.profiles["eg4-shipped"].block
 

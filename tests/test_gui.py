@@ -282,3 +282,90 @@ def test_backup_from_another_bms_is_not_offered(window, monkeypatch, tmp_path):
     n = len(w.settings.sources)
     assert w.settings.open_backup() is False
     assert len(w.settings.sources) == n and "Other BMS" in errors[0]
+
+
+def test_gui_runs_a_toy_bms(tmp_path, monkeypatch):
+    from eg4tool import drivers, qtcommon
+    from toy_driver import TOY
+    monkeypatch.setitem(drivers.DRIVERS, "toy", TOY)
+    monkeypatch.setattr(qtcommon, "data_dir", lambda: tmp_path)
+    app = QApplication.instance() or QApplication([])
+    w = gui.MainWindow()
+    w.show()
+    try:
+        w.tabs.setCurrentWidget(w.settings)
+        eg4_tab = w.settings
+        w.bms.setCurrentIndex(w.bms.findData("toy"))
+        assert w.settings is not eg4_tab and w.tabs.currentWidget() is w.settings
+        assert w.note.isHidden()  # the toy has no connect note
+        assert w.settings.staged == {}
+        assert w.settings.driver is TOY and set(w.settings.fields) == set(TOY.table)
+        assert not w.tabs.isTabVisible(w.tabs.indexOf(w.clock))
+        w.ports.setCurrentIndex(w.ports.findData(gui.SIM_PORT))
+        w.toggle_connect()
+        wait(app, lambda: w.settings.block is not None and w._last_rt is not None)
+        assert w.identity.text().startswith("<b>TY</b>")
+        assert not w.clock.set_btn.isEnabled()  # the toy has no clock
+        assert w.live.soc.value.text() == "80 %"
+        edit(w, "low_cut", "2.9")
+        wait(app, lambda: "low_cut" in w.settings.staged)
+        dlg = open_review(app, w, monkeypatch)
+        assert [c.key for c in dlg.plan.changes] == ["low_cut"]
+        dlg.ack.setChecked(True)
+        dlg.write_btn.click()
+        wait(app, lambda: dlg.result is not None)
+        assert dlg.result.ok and dlg.result.results[0].status == CONFIRMED
+    finally:
+        w.close()
+
+
+def test_backup_from_the_same_bms_is_offered(window, monkeypatch, tmp_path):
+    app, w = window
+    connect_sim(app, w)
+    from eg4tool import backup
+    path = tmp_path / "same.json"
+    backup.save(path, w.settings.block)
+    monkeypatch.setattr(gui.settings_view.QFileDialog, "getOpenFileName", lambda *a, **k: (str(path), ""))
+    n = len(w.settings.sources)
+    assert w.settings.open_backup() is True
+    assert len(w.settings.sources) == n + 1
+
+
+def test_identity_warning_tags_the_pack(window):
+    app, w = window
+    from eg4tool.drivers.eg4_ll import sim
+    orig = sim.FakePack
+
+    def other_model(**kw):
+        p = orig(**kw)
+        p.image[0x69] = 0x4142  # "AB" where every EG4-LL says "ZT"
+        return p
+
+    sim.FakePack = other_model
+    try:
+        connect_sim(app, w)
+    finally:
+        sim.FakePack = orig
+    assert "check BMS type" in w.identity.text()
+    assert w.identity.toolTip() != ""
+
+
+def test_bms_stays_locked_until_a_pending_job_after_disconnect_is_done(window, monkeypatch):
+    app, w = window
+    import threading
+    connect_sim(app, w)
+    edit(w, "cell_overvoltage_protection", "3.75")
+    wait(app, lambda: w.settings.staged)
+    gate = threading.Event()
+    real_read = w.pack.read_block
+    monkeypatch.setattr(w.pack, "read_block", lambda: (gate.wait(5), real_read())[1])
+    shown = []
+    monkeypatch.setattr(gui.ReviewDialog, "exec", lambda self: shown.append(self))
+    w.review()  # its read now waits on the gate
+    assert w.worker.busy
+    w.toggle_connect()  # disconnect while the review read is pending
+    assert w.pack is None and not w.bms.isEnabled()
+    gate.set()
+    wait(app, lambda: not w.worker.busy)
+    assert w.bms.isEnabled()
+    assert shown == [] and w.settings.block is None  # the late result was dropped

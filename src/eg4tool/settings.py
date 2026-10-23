@@ -263,26 +263,3 @@ class SettingTable:
             f"{lo.label} ({lo.format(raw[rule.lower], fahrenheit)}) must stay {rel} "
             f"{hi.label} ({hi.format(raw[rule.upper], fahrenheit)})"
         )
-
-
-# Transitional: the EG4-LL names other modules still import. Removed in Task 6.
-_LEGACY = ("SETTINGS", "BY_REGISTER", "ORDER", "RANK", "LINKED_PAIRS", "TABLE")
-
-
-def __getattr__(name: str):
-    if name in _LEGACY:
-        from .drivers.eg4_ll.table import TABLE
-
-        return {
-            "SETTINGS": TABLE.settings,
-            "BY_REGISTER": TABLE.by_register,
-            "ORDER": TABLE.order,
-            "RANK": TABLE.rank,
-            "LINKED_PAIRS": TABLE.linked,
-            "TABLE": TABLE,
-        }[name]
-    if name in ("REG_BLOCK", "BLOCK_COUNT", "REG_BLOCK_LAST", "REG_CLOCK", "is_threshold_register"):
-        from .drivers.eg4_ll import registers
-
-        return getattr(registers, {"is_threshold_register": "is_writable"}.get(name, name))
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

@@ -1,7 +1,7 @@
 # EG4 BMS Tool
 
 Back up, compare and restore the protection settings of an EG4-LL battery pack
-over RS232, through the right-most of its paralleling ports. It runs on Windows, macOS and Linux, as a desktop
+(other BMS types can be added as drivers) over RS232, through the right-most of its paralleling ports. It runs on Windows, macOS and Linux, as a desktop
 app (Qt) or from the command line. It is an unofficial, open-source tool, not
 made or supported by EG4.
 
@@ -113,6 +113,26 @@ directory, or in `--log-dir`. `diff` exits 1 when the pack differs.
 
 On Windows, `EG4 BMS Tool.exe` is windowed and has no console. Use
 `eg4tool.exe` for the command line.
+
+## Adding a BMS
+
+Everything specific to one BMS family lives in a driver package under
+`src/eg4tool/drivers/` (see `eg4_ll/` for the complete example). A driver
+subclasses `drivers.base.Driver` and provides:
+
+- a `SettingTable`: registers, scaling, safe ranges, the order rules
+  between settings, and any settings that must move together;
+- the settings block range and which registers may be written;
+- identity (model, firmware, clock) and live-value decoding;
+- the Settings tab pages, built-in profiles, connection texts;
+- a simulator, so the whole flow can be tested without hardware.
+
+Register it in `drivers/__init__.py`. The engine, CLI (`--bms`) and app
+(the BMS selector) pick it up from there. `tests/toy_driver.py` is a
+minimal driver used to keep the engine honest.
+
+A new driver should only ever be used for `info`, `backup`, `diff` and
+`live` until its register map has been checked against a real unit.
 
 ## Safe ranges and rules
 

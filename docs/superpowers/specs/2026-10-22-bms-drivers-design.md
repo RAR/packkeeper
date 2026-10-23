@@ -1,6 +1,6 @@
 # BMS drivers: making the tool pluggable
 
-Date: 2026-10-22. Status: design, awaiting review.
+Date: 2026-10-22. Status: implemented on branch bms-drivers.
 
 ## Goal
 
