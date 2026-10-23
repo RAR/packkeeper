@@ -824,6 +824,7 @@ class MainWindow(QMainWindow):
         if self.pack is None:  # disconnected while the read was waiting
             return
         if err is not None:
+            self.pack.log.error(f"settings read failed: {err}")
             self.settings.set_block(None)
             self.clock.show_block(None)
             self.identity.setText("No valid read")

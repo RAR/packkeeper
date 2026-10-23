@@ -198,7 +198,7 @@ addr | func | start (BE16) | end (BE16) | len (BE16) | data[len] | CRC16-Modbus 
 | Area | Start | Registers | Request names | Notes |
 |---|---|---|---|---|
 | protection | 0x1800 | 104 | 0x1800–0x1900 | a real pack sends 208 bytes (to 0x18D0) |
-| pack | 0x1C00 | 71 | 0x1C00–0x1CA0 | through the fan temperatures at 0x1C8C |
+| pack | 0x1C00 | 68 | 0x1C00–0x1CA0 | through 0x1C86; a real pack (2026-10-23) sends no 0x1C88 address or V2 fan registers, so they are left out |
 | capacity | 0x2000 | 32 | 0x2000–0x2050 | through the function bits at 0x203E |
 | clock | 0x2800 | 6 | 0x2800–0x280F | Y, M, D, h, m, s as u16, full year |
 | version | 0x2810 | 22 | 0x2810–0x2840 | a real pack sends 44 bytes (to 0x283C) |

@@ -225,14 +225,6 @@ def test_cli_info_and_dry_run(tmp_path, capsys):
     assert "00 79 18 06 18 08 00 06 11 4A 42 44 0E 10" in out and "broadcast" not in out
 
 
-def test_v1_pack_with_zero_fan_registers_can_still_write():
-    sim, dev = jbd()
-    sim.mem[0x1C8A] = sim.mem[0x1C8C] = 0
-    p = make_plan(dev.read_block(), {"cell_ov_protection": 3600})
-    assert p.ok, p.errors
-    assert apply_plan(dev, p).results[0].status == CONFIRMED
-
-
 def test_live_decode_stops_at_the_end_of_the_data():
     from packkeeper.drivers.jbd_up.live import decode
 
@@ -303,7 +295,7 @@ def test_real_pack_requests_are_the_ones_it_answered():
     from packkeeper.drivers.jbd_up import DRIVER, registers as R
 
     f = DRIVER.new_framing()
-    sent = {f.read_request(2, a.start, a.count) for a in (R.VERSION, R.PROTECTION, R.LIVE)}
+    sent = {f.read_request(2, a.start, a.count) for a in (R.VERSION, R.PROTECTION, R.PACK, R.LIVE)}
     assert sent == set(real_frames())
 
 
@@ -313,10 +305,13 @@ def test_real_pack_replies_fill_their_areas():
     dev = DRIVER.open_device(ReplayTransport(), SessionLog(), 2)
     version = dev.read_area(R.VERSION)  # 44 bytes sent for a 48-byte request
     protection = dev.read_area(R.PROTECTION)  # 208 for 256
+    pack = dev.read_area(R.PACK)  # 136 for 160: no fan or software-address registers
     live_regs = dev.read_area(R.LIVE)  # 162 for 160
-    assert (len(version), len(protection), len(live_regs)) == (R.VERSION.count, R.PROTECTION.count, R.LIVE.count)
+    assert (len(version), len(protection), len(pack), len(live_regs)) == (
+        R.VERSION.count, R.PROTECTION.count, R.PACK.count, R.LIVE.count)
     assert version[(R.REG_PROTOCOL - R.VERSION.start) // 2] == 0x0026
     assert protection[3] == 3600  # cell OV protection, mV
+    assert pack[(0x1C78 - R.PACK.start) // 2 :][:3] == [3150, 1440, 1]  # sleep voltage, sleep delay, balance mode
     rt = DRIVER.decode_live(live_regs)
     assert rt.pack_voltage == 53.96 and rt.current == 2.25 and rt.cell_count == 16 and rt.cycles == 84
 
@@ -335,7 +330,7 @@ def test_sim_answers_with_the_real_pack_block_lengths():
     from packkeeper.drivers.jbd_up.sim import FakeJbd
 
     sim, f = FakeJbd(address=2), DRIVER.new_framing()
-    for area, sent in ((R.VERSION, 44), (R.PROTECTION, 208), (R.LIVE, 162)):
+    for area, sent in ((R.VERSION, 44), (R.PROTECTION, 208), (R.PACK, 136), (R.LIVE, 162)):
         assert sim.transact(f.read_request(2, area.start, area.count))[6:8] == sent.to_bytes(2, "big")
 
 

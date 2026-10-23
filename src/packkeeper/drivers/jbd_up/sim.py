@@ -47,7 +47,6 @@ WORDS = {
     0x1C78: (2900, 60, 0),  # sleep voltage, delay, balance mode
     0x1C7E: (0, 0, 0),  # RS485 protocol, CAN baud, RS485 baud
     0x1C84: (10, 120),  # standby sleep current, static sleep delay
-    0x1C8A: (_t(45), _t(40)),  # fan on/off
     0x2000: (10000, 10000, 7600, 7600, 100, 37),  # design, full, remaining, SOC, SOH, cycles
     0x201A: (3000, 5, 3200, 20, 3300, 60, 3400, 95),  # SOC table (mV, %) x4
     0x202A: (560, 500, 460, 1000, 16, 250, 4, 3000, 2, 0, 0x0001),  # requests, cells, shunt, sensors, SC, SOC cfg, function bits
@@ -57,7 +56,7 @@ TEXTS = {0x281C: ("JBD-UP16S010", 16), 0x282C: ("ECOWORTHY48V", 16)}
 CLOCK = datetime(2026, 10, 23, 8, 0, 0)
 DEFAULT_FLOORS = {0x1C06: 20}  # keeps the old balance delta below 0.020 V, like a pack might
 # Where a block read ends, whatever end the request names: the lengths a real pack sent.
-SENDS = {0x1000: 0x10A2, 0x1800: 0x18D0, 0x2810: 0x283C}
+SENDS = {0x1000: 0x10A2, 0x1800: 0x18D0, 0x1C00: 0x1C88, 0x2810: 0x283C}
 
 
 def _text(s: str, nbytes: int) -> list[int]:
@@ -107,7 +106,6 @@ class FakeJbd:
         for reg, (text, n) in {**TEXTS, R.REG_PACK_SN: (serial, 30)}.items():
             for i, w in enumerate(_text(text, n)):
                 self.mem[reg + 2 * i] = w
-        self.mem[0x1C88] = address  # BMS software address (read-only here)
         self.mem[R.REG_PROTOCOL] = protocol
         self.key = (protocol & 0xFF or 0x11) if key is None else key  # the key this pack accepts
         self._set_clock(CLOCK)

@@ -52,8 +52,6 @@ SINGLE = {
     "balance_mode": (0x1C7C, (None, 1, 0, 0), (0, 1, 1), "Balance mode"),
     "standby_sleep_current": (0x1C84, ("A", 0.1, 0, 1), (0.1, 5.0, 0.1), "Standby sleep current"),
     "static_sleep_delay": (0x1C86, ("min", 1, 0, 0), (1, 1440, 1), "Static sleep delay"),
-    "fan_on": (0x1C8A, TEMP, (30, 70, 0.1), "Fan on"),
-    "fan_off": (0x1C8C, TEMP, (25, 65, 0.1), "Fan off"),
     "design_capacity": (0x2000, ("Ah", 0.01, 0, 2), (10, 600, 0.01), "Design capacity"),
     "full_capacity": (0x2002, ("Ah", 0.01, 0, 2), (10, 600, 0.01), "Full capacity"),
     "charge_request_voltage": (0x202A, ("V", 0.1, 0, 1), (48.0, 58.4, 0.1), "Charge request voltage"),

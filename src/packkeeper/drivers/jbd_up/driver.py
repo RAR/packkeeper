@@ -99,7 +99,7 @@ class JbdUp(Driver):
 
     def info_lines(self, block: Block) -> list[tuple[str, str]]:
         return [
-            ("Address", f"{block.reg(0x1C88)} (software), RS485 baud code {block.reg(0x1C82)}"),
+            ("RS485", f"baud code {block.reg(0x1C82)}"),
             ("SOC/SOH", f"{block.reg(0x2006) / 100:.0f} % / {block.reg(0x2008)} %, {block.reg(0x200A)} cycles"),
         ]
 

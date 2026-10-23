@@ -645,3 +645,20 @@ def test_choice_edit_ignores_wheel_without_focus(app_instance=None):
     box.wheelEvent(ev)
     assert box.currentText() == "a" and not ev.isAccepted()
     box.close()
+
+
+def test_a_failed_settings_read_is_written_to_the_log(window, monkeypatch):
+    from packkeeper.errors import FrameError
+
+    app, w = window
+    connect_sim(app, w)
+    shown = []
+    monkeypatch.setattr(gui.QMessageBox, "warning", lambda *a, **k: shown.append(a[2]))
+
+    def fail():
+        raise FrameError("0x1C00: the device sent 68 registers, expected 71")
+
+    monkeypatch.setattr(w.pack, "read_block", fail)
+    w.read_settings()
+    wait(app, lambda: shown)
+    assert any("ERROR" in line and "the device sent 68 registers" in line for line in w.pack.log.lines)

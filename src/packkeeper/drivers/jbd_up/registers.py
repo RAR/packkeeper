@@ -10,7 +10,7 @@ STRIDE = 2
 # 0x1800-0x1900, 44 for 0x2810-0x2840 and 162 for 0x1000-0x10A0.
 LIVE = Area(0x1000, 0x50, STRIDE)  # 0x1000-0x10A0
 PROTECTION = Area(0x1800, 0x68, STRIDE)  # 0x1800-0x18D0: groups a-r, all a real pack sends
-PACK = Area(0x1C00, 0x47, STRIDE)  # 0x1C00-0x1C8E: through the fan temperatures
+PACK = Area(0x1C00, 0x44, STRIDE)  # 0x1C00-0x1C86: a real pack sends no fan or software-address registers
 CAPACITY = Area(0x2000, 0x20, STRIDE)  # 0x2000-0x2040: through the function bits
 CLOCK = Area(0x2800, 6, STRIDE)  # Y M D h m s
 VERSION = Area(0x2810, 0x16, STRIDE)  # 0x2810-0x283C, all a real pack sends
