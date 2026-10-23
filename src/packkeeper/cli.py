@@ -1,4 +1,4 @@
-"""Command line: packkeeper ports | info | backup | diff | set | restore | copy | clock | find | probe | live | keys | gui."""
+"""Command line: packkeeper ports | info | backup | diff | set | restore | copy | clock | find | probe | listen | live | keys | gui."""
 
 from __future__ import annotations
 
@@ -136,6 +136,12 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("probe", parents=[common], help="try a list of reads and report each (reads only)")
     s.set_defaults(func=cmd_probe)
 
+    s = sub.add_parser("listen", parents=[common],
+                       help="decode every frame on the line without sending anything (to capture another program)")
+    s.add_argument("--baud", type=int, help="line speed (default: the BMS type's)")
+    s.add_argument("--seconds", type=float, help="stop after this long (default: until Ctrl-C)")
+    s.set_defaults(func=cmd_listen)
+
     s = sub.add_parser("live", parents=[common], help="read-only live view of the pack")
     s.add_argument("--interval", type=float, default=2.0)
     s.add_argument("--once", action="store_true")
@@ -239,6 +245,43 @@ def cmd_probe(args) -> int:
     if pack.log.path:
         print(f"Every frame is in {pack.log.path}")
     return 0 if any(p.ok for p in probes) else 1
+
+
+def cmd_listen(args) -> int:
+    import dataclasses
+
+    import serial
+
+    from . import listen
+
+    if args.simulate:
+        raise CliError("listen needs a real port: it only hears what other devices send")
+    driver = driver_of(args)
+    params = dataclasses.replace(driver.serial, baud=args.baud) if args.baud else driver.serial
+    port = args.port or os.environ.get("PACKKEEPER_PORT") or os.environ.get("EG4TOOL_PORT") or guess_port()
+    if not port:
+        raise CliError("no port given and no single USB serial port found; use --port (see 'packkeeper ports')")
+    log = SessionLog(default_log_path(Path(args.log_dir) if args.log_dir else None))
+    log.info(f"listening on {port} at {params.baud} baud; nothing is sent")
+    try:
+        line = serial.Serial(port, params.baud, bytesize=params.bytesize, parity=params.parity,
+                             stopbits=params.stopbits, timeout=0.05)
+    except Exception as e:  # serial.SerialException and OS errors
+        raise CliError(f"cannot open {port}: {e}") from None
+    print(f"Listening on {port} at {params.baud} baud; nothing is sent. Ctrl-C to stop.   Log: {log.path}")
+
+    def heard(h) -> None:
+        log.rx(h.raw)
+        log.info(f"heard {h.text}")
+        print(f"{datetime.now():%H:%M:%S.%f}"[:-3] + f"  {h.text}")
+
+    try:
+        listen.run(line.read, heard, args.seconds)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        line.close()
+    return 0
 
 
 def print_identity(block: Block) -> None:

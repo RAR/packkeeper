@@ -97,6 +97,7 @@ packkeeper copy                               read one pack, swap, write it to a
 packkeeper clock [--now | --set '...']        show or set the BMS clock
 packkeeper find                               list the addresses that answer (reads only)
 packkeeper probe                              try a list of reads, report each (reads only)
+packkeeper listen [--baud N] [--seconds S]    decode every frame on the line; never sends
 packkeeper live [--once]                      read-only live view
 packkeeper keys                               setting keys, registers, safe ranges
 packkeeper gui                                open the desktop app
@@ -108,6 +109,10 @@ Common options:
   or `$PACKKEEPER_PORT` (the old `$EG4TOOL_PORT` still works).
 - `-F` shows (and accepts) °F.
 - `--dry-run` / `-n` on any write command prints the frames it would send.
+
+`listen` only hears. Put a second adapter on the same A/B pair as another
+program (the stock app, a master pack) and it logs and decodes every frame:
+JBD-UP, Modbus RTU, JK's `55 AA EB 90` frames and `A5 5A` display frames.
 - `--simulate` uses a fake pack. Add `--sim-state FILE` to keep its state
   between runs.
 - `--address N` picks the Modbus address, for BMS types that have one to choose (JK-PB, ECO-WORTHY / JBD-UP).
