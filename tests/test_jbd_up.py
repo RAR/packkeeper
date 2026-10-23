@@ -219,3 +219,31 @@ def test_cli_info_and_dry_run(tmp_path, capsys):
                  "cell_ov_protection", "3.6"]) == 0
     out = capsys.readouterr().out
     assert "00 79 18 06 18 08 00 06 11 4A 42 44 0E 10" in out and "broadcast" not in out
+
+
+def test_v1_pack_with_zero_fan_registers_can_still_write():
+    sim, dev = jbd()
+    sim.mem[0x1C8A] = sim.mem[0x1C8C] = 0
+    p = make_plan(dev.read_block(), {"cell_ov_protection": 3600})
+    assert p.ok, p.errors
+    assert apply_plan(dev, p).results[0].status == CONFIRMED
+
+
+def test_live_decode_stops_at_the_end_of_the_data():
+    from packkeeper.drivers.jbd_up.live import decode
+
+    _sim, dev = jbd()
+    regs = dev.read_live().registers
+    off = 0x44 + 2 * regs[0x42 // 2]
+    cut = regs[: (off + 2) // 2]  # ends right after the sensor count
+    rt = decode(cut)
+    assert not any(n.startswith("sensor") for n, _ in rt.temps) and rt.max_temp is None
+
+
+def test_key_comes_from_the_pack_protocol_register():
+    sim, dev = jbd(protocol=0x13, key=0x13)
+    b = dev.read_block()
+    assert dev.framing.key == 0x13
+    p = make_plan(b, {"cell_ov_protection": 3600})
+    assert p.frames(dev.address, dev.framing)[0][8] == 0x13
+    assert apply_plan(dev, p).results[0].status == CONFIRMED

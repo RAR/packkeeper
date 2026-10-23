@@ -42,7 +42,7 @@ def decode(regs: list[int]) -> Live:
     cells = [u16(0x44 + 2 * i) / 1000 for i in range(n) if 0x44 + 2 * i + 2 <= len(data)]
     off = 0x44 + 2 * u16(0x42)
     m = min(u16(off), 16)
-    sensors = [temp(u16(off + 2 + 2 * i)) for i in range(m)]
+    sensors = [temp(u16(off + 2 + 2 * i)) for i in range(m) if off + 2 + 2 * i + 2 <= len(data)]
     off += 2 + 2 * u16(off)
     balancing = u32(off)
     io = u16(0x20)

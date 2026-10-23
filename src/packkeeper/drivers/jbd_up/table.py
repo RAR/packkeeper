@@ -149,7 +149,6 @@ def _build():
         ("cell_uv_protection", "cell_ov_protection", True),
         ("pack_uv_protection", "pack_ov_protection", True),
         ("heater_on", "heater_off", True),
-        ("fan_off", "fan_on", True),
         ("full_capacity", "design_capacity", False),
     ]
     for i in range(1, 4):
