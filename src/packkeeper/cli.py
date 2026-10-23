@@ -1,4 +1,4 @@
-"""Command line: packkeeper ports | info | backup | diff | set | restore | copy | clock | find | live | keys | gui."""
+"""Command line: packkeeper ports | info | backup | diff | set | restore | copy | clock | find | probe | live | keys | gui."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from .block import BlankBlockError, Block, DriverMismatch
 from .device import BROADCAST_WARNING, ModbusDevice, PackError
 from .errors import FrameError
 from .find import scan
+from .probe import run as run_probes
 from .modbus import ModbusError
 from .planner import Plan, identity_warnings, make_plan, targets_from_block
 from .service import NOT_ATTEMPTED, UNVERIFIED, StaleError, apply_plan, diff_blocks, set_clock
@@ -132,6 +133,9 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("find", parents=[common], help="list the addresses that answer (reads only)")
     s.set_defaults(func=cmd_find)
 
+    s = sub.add_parser("probe", parents=[common], help="try a list of reads and report each (reads only)")
+    s.set_defaults(func=cmd_probe)
+
     s = sub.add_parser("live", parents=[common], help="read-only live view of the pack")
     s.add_argument("--interval", type=float, default=2.0)
     s.add_argument("--once", action="store_true")
@@ -219,6 +223,20 @@ def cmd_find(args) -> int:
     if not found:
         print("No pack answered.")
     return 0 if found else 1
+
+
+def cmd_probe(args) -> int:
+    pack = open_pack(args)
+    try:
+        probes = run_probes(pack)
+    finally:
+        pack.close()
+    for p in probes:
+        head = " ".join(f"{w:04X}" for w in p.words[:8]) + (" ..." if len(p.words) > 8 else "")
+        print(f"{p.label:<28} 0x{p.area.start:04X} x{p.area.count:<4} {p.outcome:<20} {head}".rstrip())
+    if pack.log.path:
+        print(f"Every frame is in {pack.log.path}")
+    return 0 if any(p.ok for p in probes) else 1
 
 
 def print_identity(block: Block) -> None:

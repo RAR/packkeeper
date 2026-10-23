@@ -98,6 +98,11 @@ class Driver:
     def clock_write(self, t: datetime) -> tuple[int, list[int]]:
         raise NotImplementedError(f"{self.label} has no clock")
 
+    def probe_reads(self) -> tuple[tuple[str, Area], ...]:
+        """The reads `packkeeper probe` tries one by one (reads only): each area and live read."""
+        reads = (*self.areas, *(Area(*a) for a in self.live_reads))
+        return tuple((f"0x{a.start:04X}, {a.count} registers", a) for a in reads)
+
     # --- provided -----------------------------------------------------------
 
     def block(self, *areas) -> Block:

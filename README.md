@@ -95,6 +95,8 @@ packkeeper restore pack1.json [--skip k1,k2]  write a backup back
 packkeeper restore --profile eg4-shipped      restore EG4's shipped values
 packkeeper copy                               read one pack, swap, write it to another
 packkeeper clock [--now | --set '...']        show or set the BMS clock
+packkeeper find                               list the addresses that answer (reads only)
+packkeeper probe                              try a list of reads, report each (reads only)
 packkeeper live [--once]                      read-only live view
 packkeeper keys                               setting keys, registers, safe ranges
 packkeeper gui                                open the desktop app
@@ -156,10 +158,11 @@ this tool's proposal for 16S LiFePO4, not JK's limits: compare them with JK's
 app before the first write. On every connect the tool reads cell
 over-voltage at two candidate addresses to confirm how the pack numbers its
 registers; if that does not come out cleanly, writes and the clock are turned
-off for that session and the reason is shown. A read that fails with "may
-number its registers by word" means the pack refused an address this build
-reads by byte: the pack likely numbers its registers by word, and this build
-cannot read or write it.
+off for that session and the reason is shown. If the pack refuses the
+settings read, run `packkeeper probe --bms jk-pb --address N` (reads only; on
+Windows `packkeeper-cli`). It tries short and long reads at the byte- and
+word-numbered addresses and prints which ones the pack accepts; the session
+log it names has every frame.
 
 Never written: cell count, the charge/discharge/balance switches, the device
 address, calibration, shutdown, emergency start and the one-key presets.

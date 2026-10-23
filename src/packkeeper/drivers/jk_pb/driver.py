@@ -5,7 +5,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from ...block import Block, Identity, ascii_text
+from ...block import Area, Block, Identity, ascii_text
 from ...device import READ_RETRIES
 from ...errors import DeviceRefused
 from ...modbus import ModbusError
@@ -117,6 +117,24 @@ class JkPB(Driver):
         if model.startswith(("JK_PB", "JK-PB")):
             return []
         return [f"the model text '{model}' is not the JK_PB... of a PB-series BMS; is the right BMS type selected?"]
+
+    def probe_reads(self):
+        # Small reads first, then longer ones: which addresses and lengths the pack accepts
+        # shows its register numbering (cell OV at 0x100C by byte, 0x1006 by word) and its read limit.
+        S, L, D = R.SETTINGS, R.LIVE, R.DEVICE
+        reads = [
+            ("settings start", Area(S, 2)),
+            ("cell OV, numbered by byte", Area(S + R.OV_OFFSET, 2)),
+            ("cell OV, numbered by word", Area(S + R.OV_OFFSET // 2, 2)),
+            *((f"settings, {n} registers", Area(S, n)) for n in (8, 16, 32, 64, 100, 125)),
+            ("live start", Area(L, 2)),
+            *((f"live, {n} registers", Area(L, n)) for n in (16, 64)),
+            ("model text", Area(D, 8)),
+            ("device info, 20 registers", Area(D, 20)),
+            ("clock, numbered by byte", Area(L + R.CLOCK_OFFSET, 2)),
+            ("clock, numbered by word", Area(L + R.CLOCK_OFFSET // 2, 2)),
+        ]
+        return tuple(reads)
 
     def clock_write(self, t):
         secs = R.pack_clock(t)

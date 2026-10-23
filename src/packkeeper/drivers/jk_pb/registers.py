@@ -67,8 +67,8 @@ CONNECT_NOTE_HTML = (
     "into one of the pack's RS485 ports. Set <b>Address</b> to the pack's DIP-switch address."
 )
 READ_ERROR_HINT = (
-    "A JK-PB that refuses this read may number its registers by word, not by byte as this build "
-    "expects; see the README's JK-PB section."
+    "The JK-PB refused this read. 'packkeeper probe --bms jk-pb' (reads only) shows which addresses "
+    "and read lengths it accepts; see the README's JK-PB section."
 )
 NO_REPLY_HINT = "Check the link cables are unplugged, A/B wiring, and the address (try 1, then 0)."
 SETUP_HINT = "link cables unplugged, adapter in one of its RS485 ports"

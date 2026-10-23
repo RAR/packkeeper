@@ -190,12 +190,12 @@ def test_one_dropped_probe_reply_does_not_turn_writes_off():
     assert res.ok and dev.write_refusal is None and len(sim.writes) == 2
 
 
-def test_a_refused_read_points_at_the_register_numbering():
+def test_a_refused_read_points_at_probe():
     sim, dev = jk(stride=1, refuse_outside=True)  # a word-addressed pack that refuses reads outside its areas
     with pytest.raises(PackError, match="exception 2") as e:
         dev.read_block()
-    assert "number its registers by word" in str(e.value) and "README" in str(e.value)
-    assert any("WARN" in line and "by word" in line for line in dev.log.lines)
+    assert "packkeeper probe" in str(e.value) and "README" in str(e.value)
+    assert any("WARN" in line and "packkeeper probe" in line for line in dev.log.lines)
     assert sim.writes == []
 
 
