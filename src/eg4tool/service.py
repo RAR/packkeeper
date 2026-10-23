@@ -13,11 +13,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable
 
-from .block import Block
-from .device import Device
+from .block import Block, DriverMismatch
+from .device import Device, PackError
 from .errors import DeviceRefused
 from .planner import Change, Plan
-from .settings import BY_REGISTER, LINKED_PAIRS, SETTINGS
+from .settings import Setting, SettingTable
 
 CONFIRMED = "confirmed"
 NOT_APPLIED = "NOT applied"
@@ -63,13 +63,14 @@ class ApplyResult:
 
 
 def register_diff(a: Block, b: Block) -> list[int]:
-    """Threshold registers (known or not) that differ between two blocks."""
+    """Writable registers (known or not) that differ between two blocks."""
+    a.same_driver(b)
     ra, rb = a.threshold_registers(), b.threshold_registers()
     return [r for r in ra if ra[r] != rb[r]]
 
 
-def describe_register(reg: int, raw: int) -> str:
-    s = BY_REGISTER.get(reg)
+def describe_register(table: SettingTable, reg: int, raw: int) -> str:
+    s = table.by_register.get(reg)
     return f"{s.label} = {s.format(raw)}" if s else f"unknown register 0x{reg:02X} = {raw}"
 
 
@@ -80,11 +81,16 @@ def apply_plan(
     results = [WriteResult(c) for c in plan.changes]
     if not plan.ok:
         raise ValueError("refusing to apply a plan with errors")
+    if pack.driver is not plan.base.driver:
+        raise DriverMismatch(
+            f"this plan is for a {plan.base.driver.label} BMS and the connected device is a {pack.driver.label}"
+        )
+    table = plan.base.driver.table
 
     now = pack.read_block()
     changed = register_diff(plan.base, now)
     if changed:
-        what = ", ".join(describe_register(r, now.reg(r)) for r in changed)
+        what = ", ".join(describe_register(table, r, now.reg(r)) for r in changed)
         log.error(f"pack changed since the diff was made: {what}")
         raise StaleError(
             f"the pack's settings changed since the diff was made ({what}). "
@@ -116,7 +122,7 @@ def apply_plan(
                 stopped=f"stopped at {change.setting.label}: {e}. That write was sent but could not be "
                 "read back; read the pack and diff it before doing anything else",
             )
-            _log_summary(log, out)
+            _log_summary(log, out, table)
             return out
 
         final = block
@@ -129,14 +135,14 @@ def apply_plan(
         log.result(result.describe())
         if others:
             unexpected = [
-                f"{describe_register(r, block.reg(r))} (expected {expected.reg(r)} raw)" for r in others
+                f"{describe_register(table, r, block.reg(r))} (expected {expected.reg(r)} raw)" for r in others
             ]
             out = ApplyResult(
                 results, block, stopped="other registers changed unexpectedly", unexpected=unexpected
             )
             for u in unexpected:
                 log.error(f"unexpected change: {u}")
-            _log_summary(log, out)
+            _log_summary(log, out, table)
             return out
         if result.status != CONFIRMED:
             rest = len(results) - i - 1
@@ -146,19 +152,19 @@ def apply_plan(
                 stopped=f"the pack did not store {change.setting.label}"
                 + (f"; the remaining {rest} write(s) were not sent" if rest else ""),
             )
-            _log_summary(log, out)
+            _log_summary(log, out, table)
             return out
 
     out = ApplyResult(results, final)
-    _log_summary(log, out)
+    _log_summary(log, out, table)
     return out
 
 
-def _log_summary(log, out: ApplyResult) -> None:
+def _log_summary(log, out: ApplyResult, table: SettingTable) -> None:
     if out.stopped and out.final is not None:
-        for a, b in LINKED_PAIRS:
+        for a, b in table.linked:
             if out.final.raw(a) != out.final.raw(b):
-                sa, sb = SETTINGS[a], SETTINGS[b]
+                sa, sb = table[a], table[b]
                 out.warnings.append(
                     f"the pack is left with {sa.label} {sa.format(out.final.raw(a))} and {sb.label} "
                     f"{sb.format(out.final.raw(b))}: they should be equal; fix before using the pack"
@@ -182,6 +188,8 @@ class ClockResult:
 
 
 def set_clock(pack: Device, t: datetime) -> ClockResult:
+    if not pack.driver.supports_clock:
+        raise PackError(f"the {pack.driver.label} has no clock to set")
     before = pack.read_block().clock
     t = t.replace(microsecond=0, tzinfo=None)
     pack.log.info(f"setting the BMS clock to {t}")
@@ -197,14 +205,13 @@ class DiffRow:
     key: str
     a: int
     b: int
-
-    @property
-    def setting(self):
-        return SETTINGS[self.key]
+    setting: Setting
 
 
 def diff_blocks(a: Block, b: Block) -> tuple[list[DiffRow], list[int]]:
-    """Known settings that differ, and unknown threshold registers that differ."""
-    rows = [DiffRow(k, a.raw(k), b.raw(k)) for k in SETTINGS if a.raw(k) != b.raw(k)]
-    unknown = [r for r in register_diff(a, b) if r not in BY_REGISTER]
+    """Known settings that differ, and unknown writable registers that differ."""
+    a.same_driver(b)
+    table = a.driver.table
+    rows = [DiffRow(k, a.raw(k), b.raw(k), s) for k, s in table.items() if a.raw(k) != b.raw(k)]
+    unknown = [r for r in register_diff(a, b) if r not in table.by_register]
     return rows, unknown

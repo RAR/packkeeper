@@ -256,7 +256,7 @@ def test_no_valid_order_refused_with_blockers(monkeypatch):
     rules = [Rule("cell_overvoltage_release", "cell_overvoltage_warning", True),
              Rule("cell_overvoltage_warning", "cell_overvoltage_protection", True)]
     targets = {"cell_overvoltage_release": 3750, "cell_overvoltage_warning": 3790}
-    monkeypatch.setattr(planner, "_order", lambda cur, want, _rules: ([], {"cell_overvoltage_warning": [rules[1]]}))
+    monkeypatch.setattr(planner, "_order", lambda _table, cur, want, _rules: ([], {"cell_overvoltage_warning": [rules[1]]}))
     p = make_plan(REF, targets, rules=rules)
     assert not p.ok and p.changes == []
     assert "no write order" in p.errors[0]
@@ -267,7 +267,7 @@ def test_deadlock_path_names_rules():
     from eg4tool import planner
     rules = [Rule("cell_overvoltage_release", "cell_overvoltage_warning", True),
              Rule("cell_overvoltage_warning", "cell_overvoltage_protection", True)]
-    order, stuck = planner._order(REF.raws(), {"cell_overvoltage_release": 3750, "cell_overvoltage_warning": 3800}, rules)
+    order, stuck = planner._order(REF.driver.table, REF.raws(), {"cell_overvoltage_release": 3750, "cell_overvoltage_warning": 3800}, rules)
     assert set(stuck) == {"cell_overvoltage_release", "cell_overvoltage_warning"}
     assert stuck["cell_overvoltage_warning"] == [rules[1]]
 

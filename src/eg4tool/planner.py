@@ -15,11 +15,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from . import modbus
 from .block import Block
-from .settings import LINKED_PAIRS, ORDER, RANK, SETTINGS, TABLE, Rule, Setting, is_threshold_register
-
-ADDRESS = 1
+from .settings import LinkedPair, Rule, Setting, SettingTable
 
 
 @dataclass(frozen=True)
@@ -44,9 +41,6 @@ class Change:
         s = self.setting
         return f"{s.label}: {s.format(self.old, fahrenheit)} -> {s.format(self.new, fahrenheit)}"
 
-    def frame(self, address: int = ADDRESS) -> bytes:
-        return modbus.write_request(address, self.register, [self.new])
-
 
 @dataclass
 class Plan:
@@ -70,29 +64,36 @@ class Plan:
     def result(self) -> Block:
         return self.base.with_raws({c.register: c.new for c in self.changes})
 
-    def frames(self, address: int = ADDRESS) -> list[bytes]:
-        return [c.frame(address) for c in self.changes]
+    def frames(self) -> list[bytes]:
+        d = self.base.driver
+        return [d.write_frame(c.register, c.new) for c in self.changes]
 
 
 def make_plan(
     base: Block,
     targets: dict[str, int],
-    rules: list[Rule] = ORDER,
-    linked: list[tuple[str, str]] = LINKED_PAIRS,
+    rules: list[Rule] | None = None,
+    linked: list[LinkedPair] | None = None,
     fahrenheit: bool = False,
+    source: Block | None = None,
 ) -> Plan:
     """Plan writes that take `base` to `targets` ({setting key: raw})."""
+    if source is not None:
+        base.same_driver(source, "the source")
+    table = base.driver.table
+    rules = table.order if rules is None else rules
+    linked = table.linked if linked is None else linked
     plan = Plan(base=base)
     base.check_not_blank()
     current = base.raws()
 
     wanted: dict[str, int] = {}
     for key, raw in targets.items():
-        s = SETTINGS.get(key)
+        s = table.get(key)
         if s is None:
             plan.errors.append(f"unknown setting '{key}'")
             continue
-        if not is_threshold_register(s.register):
+        if not base.driver.is_writable(s.register):
             plan.errors.append(f"{s.label}: register 0x{s.register:02X} is not writable")
             continue
         if raw == current[key]:
@@ -106,60 +107,59 @@ def make_plan(
 
     final = {**current, **wanted}
     plan.proposed = sorted(
-        (Change(SETTINGS[k], current[k], r) for k, r in targets.items() if k in SETTINGS and r != current[k]),
+        (Change(table[k], current[k], r) for k, r in targets.items() if k in table and r != current[k]),
         key=lambda c: c.register,
     )
 
-    for a, b in linked:
+    for pair in linked:
+        a, b = pair
         if a in wanted or b in wanted:
             if final[a] != final[b]:
                 plan.problem_keys.update((a, b))
-                sa, sb = SETTINGS[a], SETTINGS[b]
+                sa, sb = table[a], table[b]
                 plan.errors.append(
                     f"{sa.label} ({sa.format(final[a])}) and {sb.label} ({sb.format(final[b])}) "
-                    "must be set to the same value: which register is which is not settled yet"
+                    f"must be set to the same value: {pair.reason}"
                 )
         elif current[a] != current[b]:
             plan.warnings.append(
-                f"the pack has {SETTINGS[a].label} != {SETTINGS[b].label}; they ship equal"
+                f"the pack has {table[a].label} != {table[b].label}; they ship equal"
             )
 
     for rule in rules:
         if not rule.holds(final):
             plan.problem_keys.update((rule.lower, rule.upper))
             already = "" if (rule.lower in wanted or rule.upper in wanted) else " (the pack already breaks this rule; include a fix for it)"
-            plan.errors.append(f"after these writes, {TABLE.describe_rule(rule, final, fahrenheit)}{already}")
+            plan.errors.append(f"after these writes, {table.describe_rule(rule, final, fahrenheit)}{already}")
 
     for key, raw in current.items():
         if key not in wanted:
-            err = SETTINGS[key].limit_error(raw)
+            err = table[key].limit_error(raw)
             if err:
                 plan.warnings.append(f"the pack currently has {err} (not being changed)")
 
     if plan.errors:
         return plan
 
-    order, stuck = _order(current, wanted, rules)
+    order, stuck = _order(table, current, wanted, rules)
     if stuck:
         blocked = "; ".join(
-            f"{SETTINGS[k].label} is blocked by: {', '.join(TABLE.describe_rule(r, current, fahrenheit) for r in rs)}"
+            f"{table[k].label} is blocked by: {', '.join(table.describe_rule(r, current, fahrenheit) for r in rs)}"
             for k, rs in stuck.items()
         )
         plan.errors.append(f"no write order keeps every step valid. {blocked}")
         return plan
 
-    plan.changes = [Change(SETTINGS[k], current[k], wanted[k]) for k in order]
-    for a, b in linked:
+    plan.changes = [Change(table[k], current[k], wanted[k]) for k in order]
+    for pair in linked:
+        a, b = pair
         if a in wanted:
-            plan.notes.append(
-                f"{SETTINGS[a].label} and {SETTINGS[b].label} are written together "
-                "(register map for 0x52/0x54 not settled)"
-            )
+            plan.notes.append(f"{table[a].label} and {table[b].label} are written together ({pair.reason})")
     return plan
 
 
 def _order(
-    current: dict[str, int], wanted: dict[str, int], rules: list[Rule]
+    table: SettingTable, current: dict[str, int], wanted: dict[str, int], rules: list[Rule]
 ) -> tuple[list[str], dict[str, list[Rule]]]:
     state = dict(current)
     pending = dict(wanted)
@@ -181,7 +181,7 @@ def _order(
         # Moving up: the top of a chain first. Moving down: the bottom first.
         def priority(k: str) -> tuple[int, int]:
             up = pending[k] > state[k]
-            return (-RANK[k] if up else RANK[k], SETTINGS[k].register)
+            return (-table.rank[k] if up else table.rank[k], table[k].register)
 
         key = min(free, key=priority)
         state[key] = pending.pop(key)
@@ -192,10 +192,11 @@ def _order(
 def targets_from_block(source: Block, skip: set[str] = frozenset()) -> dict[str, int]:
     """Every known setting of `source`; unknown registers are never included."""
     source.check_not_blank()
-    return {k: source.raw(k) for k in SETTINGS if k not in skip}
+    return {k: source.raw(k) for k in source.driver.table if k not in skip}
 
 
 def identity_warnings(pack: Block, source: Block, source_name: str) -> list[str]:
+    pack.same_driver(source, source_name)
     out = []
     if source.model != pack.model:
         out.append(f"{source_name} is from model '{source.model}', this pack is '{pack.model}'")

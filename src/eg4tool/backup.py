@@ -12,12 +12,12 @@ from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-from . import __version__
+from . import __version__, drivers
 from .block import Block, BlankBlockError
-from .settings import BLOCK_COUNT, REG_BLOCK, SETTINGS
 
 FORMAT = "eg4tool-backup"
-FORMAT_VERSION = 1
+FORMAT_VERSION = 2
+READABLE_VERSIONS = (1, 2)  # 1: before drivers, always EG4-LL
 
 
 class BackupError(Exception):
@@ -37,10 +37,12 @@ class Backup:
 
 
 def to_dict(block: Block, port: str | None = None) -> dict:
+    d = block.driver
     clock = block.clock
     return {
         "format": FORMAT,
         "format_version": FORMAT_VERSION,
+        "bms": d.name,
         "tool_version": __version__,
         "created": datetime.now().astimezone().isoformat(timespec="seconds"),
         "port": port,
@@ -51,8 +53,8 @@ def to_dict(block: Block, port: str | None = None) -> dict:
             "serial_note": "the same on every pack; cannot identify a pack",
             "bms_clock": clock.isoformat(sep=" ") if clock else None,
         },
-        "start_register": REG_BLOCK,
-        "register_count": BLOCK_COUNT,
+        "start_register": d.block_start,
+        "register_count": d.block_count,
         "registers": list(block.registers),
         "settings": {
             key: {
@@ -61,7 +63,7 @@ def to_dict(block: Block, port: str | None = None) -> dict:
                 "value": float(s.value(block.raw(key))),
                 "unit": s.display_unit or None,
             }
-            for key, s in SETTINGS.items()
+            for key, s in d.table.items()
         },
         "unknown_registers": {f"0x{r:02X}": v for r, v in block.unknown_registers().items()},
     }
@@ -83,23 +85,29 @@ def load(path: Path) -> Backup:
 def from_dict(data: dict, where: str = "backup") -> Backup:
     if not isinstance(data, dict) or data.get("format") != FORMAT:
         raise BackupError(f"{where} is not an eg4tool backup")
-    if data.get("format_version") != FORMAT_VERSION:
-        raise BackupError(f"{where}: unsupported format version {data.get('format_version')}")
-    if data.get("start_register") != REG_BLOCK or data.get("register_count") != BLOCK_COUNT:
-        raise BackupError(f"{where}: not a 0x{REG_BLOCK:02X} x{BLOCK_COUNT} parameter block")
+    version = data.get("format_version")
+    if version not in READABLE_VERSIONS:
+        raise BackupError(f"{where}: unsupported format version {version}")
+    name = data.get("bms") if version >= 2 else drivers.DEFAULT
+    try:
+        driver = drivers.get(name)
+    except drivers.UnknownDriver as e:
+        raise BackupError(f"{where}: {e}") from None
+    if data.get("start_register") != driver.block_start or data.get("register_count") != driver.block_count:
+        raise BackupError(
+            f"{where}: not a {driver.label} settings block (0x{driver.block_start:02X} x{driver.block_count})"
+        )
     regs = data.get("registers")
     if not isinstance(regs, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in regs):
         raise BackupError(f"{where}: 'registers' must be a list of integers")
     try:
-        from .drivers.eg4_ll import DRIVER  # transitional: Task 3 reads the driver from the backup
-
-        block = DRIVER.block(regs)
+        block = driver.block(regs)
         block.check_not_blank()
     except (ValueError, BlankBlockError) as e:
         raise BackupError(f"{where}: {e}") from None
 
     for key, entry in (data.get("settings") or {}).items():
-        s = SETTINGS.get(key)
+        s = driver.table.get(key)
         if s is None:
             continue
         raw = block.raw(key)

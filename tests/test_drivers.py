@@ -81,3 +81,46 @@ def test_eg4_pages_cover_every_setting_once():
     from eg4tool.drivers.eg4_ll import DRIVER
     assert sorted(DRIVER.ordered_keys) == sorted(DRIVER.table)
     assert all(DRIVER.pages[DRIVER.page_of[k]] for k in DRIVER.table)
+
+
+import json  # noqa: E402
+
+from eg4tool import backup  # noqa: E402
+from eg4tool.drivers.eg4_ll import DRIVER as EG4_LL  # noqa: E402
+from eg4tool.planner import make_plan  # noqa: E402
+
+REF = EG4_LL.profiles["eg4-shipped"].block
+
+
+def test_backup_records_the_bms_type(tmp_path):
+    f = tmp_path / "b.json"
+    backup.save(f, REF)
+    data = json.loads(f.read_text())
+    assert data["format_version"] == 2 and data["bms"] == "eg4-ll"
+    assert backup.load(f).block.driver is EG4_LL
+
+
+def test_version_1_backup_loads_as_eg4_ll():
+    data = backup.to_dict(REF)
+    data["format_version"] = 1
+    del data["bms"]
+    assert backup.from_dict(data).block == REF
+
+
+def test_backup_naming_an_unknown_bms_is_refused():
+    data = backup.to_dict(REF)
+    data["bms"] = "mystery"
+    with pytest.raises(backup.BackupError, match="mystery"):
+        backup.from_dict(data)
+
+
+def test_plan_takes_rules_from_the_block_driver():
+    p = make_plan(REF, {"cell_overvoltage_warning": 3900})
+    assert not p.ok and any("Cell OV warning" in e for e in p.errors)
+    p = make_plan(REF, {"short_circuit_current": 25000})
+    assert any("which of 0x52 / 0x54 is which is not settled yet" in e for e in p.errors)
+
+
+def test_dry_run_frames_use_the_driver():
+    p = make_plan(REF, {"cell_overvoltage_warning": 3650})
+    assert p.frames() == [EG4_LL.write_frame(0x43, 3650)]
