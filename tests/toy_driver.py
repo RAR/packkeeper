@@ -4,13 +4,13 @@ Test-only; never registered in the shipped app."""
 
 from functools import cached_property
 
-from eg4tool.block import Identity, ascii_text
-from eg4tool.drivers.base import Driver, Profile
-from eg4tool.layout import TEMP, Page, Section
-from eg4tool.live import Live
-from eg4tool.settings import LinkedPair, SettingTable
-from eg4tool.sim import FakeModbusDevice
-from eg4tool.transport import SerialParams
+from packkeeper.block import Identity, ascii_text
+from packkeeper.drivers.base import Driver, Profile
+from packkeeper.layout import TEMP, Page, Section
+from packkeeper.live import Live
+from packkeeper.settings import LinkedPair, SettingTable
+from packkeeper.sim import FakeModbusDevice
+from packkeeper.transport import SerialParams
 
 START, COUNT = 0x100, 8  # 0x100 name, 0x101-0x106 settings, 0x107 unknown
 

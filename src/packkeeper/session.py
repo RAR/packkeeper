@@ -12,7 +12,7 @@ from . import __version__
 
 def default_log_path(directory: Path | str | None = None) -> Path:
     d = Path(directory) if directory else Path.cwd()
-    stem = f"eg4tool-{datetime.now():%Y%m%d-%H%M%S}"
+    stem = f"packkeeper-{datetime.now():%Y%m%d-%H%M%S}"
     path, n = d / f"{stem}.log", 1
     # Never share a log with another run.
     while path.exists():
@@ -30,7 +30,7 @@ class SessionLog:
         if path is not None:
             path.parent.mkdir(parents=True, exist_ok=True)
             self._fh = open(path, "a", encoding="utf-8", buffering=1)
-        self.info(f"eg4tool {__version__} on {sys.platform}, Python {sys.version.split()[0]}")
+        self.info(f"packkeeper {__version__} on {sys.platform}, Python {sys.version.split()[0]}")
 
     def _write(self, kind: str, text: str) -> None:
         line = f"{datetime.now().isoformat(timespec='milliseconds')} {kind:6s} {text}"

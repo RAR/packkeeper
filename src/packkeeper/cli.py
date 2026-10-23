@@ -1,4 +1,4 @@
-"""Command line: eg4tool ports | info | backup | diff | set | restore | copy | clock | live | keys | gui."""
+"""Command line: packkeeper ports | info | backup | diff | set | restore | copy | clock | live | keys | gui."""
 
 from __future__ import annotations
 
@@ -66,15 +66,15 @@ def main(argv: list[str] | None = None) -> int:
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
-        prog="eg4tool",
+        prog="packkeeper",
         description="Back up, compare and restore BMS protection settings, one pack at a time. Supported: "
         + ", ".join(d.label for d in drivers.DRIVERS.values()) + ".",
     )
-    p.add_argument("--version", action="version", version=f"eg4tool {__version__}")
+    p.add_argument("--version", action="version", version=f"packkeeper {__version__}")
     common = argparse.ArgumentParser(add_help=False)
     common.add_argument("--bms", choices=sorted(drivers.DRIVERS), default=drivers.DEFAULT,
                         help="BMS type (default: %(default)s)")
-    common.add_argument("-p", "--port", help="serial port (default: the only USB serial port, or $EG4TOOL_PORT)")
+    common.add_argument("-p", "--port", help="serial port (default: the only USB serial port, or $PACKKEEPER_PORT)")
     common.add_argument("--simulate", action="store_true", help="use a built-in fake pack instead of a serial port")
     common.add_argument("--sim-state", type=Path, metavar="FILE", help="with --simulate: keep the fake pack's registers in FILE")
     common.add_argument("-F", "--fahrenheit", action="store_true", help="show temperatures in °F (input too)")
@@ -98,7 +98,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("diff", parents=[common], help="compare the pack with a backup or a profile")
     g = s.add_mutually_exclusive_group(required=True)
     g.add_argument("file", nargs="?", type=Path)
-    g.add_argument("--profile", help="a built-in profile (see 'eg4tool keys --profiles')")
+    g.add_argument("--profile", help="a built-in profile (see 'packkeeper keys --profiles')")
     s.set_defaults(func=cmd_diff)
 
     s = sub.add_parser("set", parents=[common, write], help="change one setting (KEY VALUE, repeatable)")
@@ -108,7 +108,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("restore", parents=[common, write], help="write a backup or a profile to the pack")
     g = s.add_mutually_exclusive_group(required=True)
     g.add_argument("file", nargs="?", type=Path)
-    g.add_argument("--profile", help="a built-in profile (see 'eg4tool keys --profiles')")
+    g.add_argument("--profile", help="a built-in profile (see 'packkeeper keys --profiles')")
     s.add_argument("--skip", default="", help="comma-separated setting keys to leave alone")
     s.set_defaults(func=cmd_restore)
 
@@ -137,7 +137,7 @@ def build_parser() -> argparse.ArgumentParser:
     s.set_defaults(func=cmd_keys)
 
     s = sub.add_parser("gui", help="open the desktop app")
-    s.set_defaults(func=lambda a: __import__("eg4tool.gui", fromlist=["main"]).main())
+    s.set_defaults(func=lambda a: __import__("packkeeper.gui", fromlist=["main"]).main())
     return p
 
 
@@ -154,9 +154,9 @@ def open_pack(args, near: Path | None = None) -> ModbusDevice:
     else:
         from .transport import SerialTransport
 
-        port = args.port or os.environ.get("EG4TOOL_PORT") or guess_port()
+        port = args.port or os.environ.get("PACKKEEPER_PORT") or os.environ.get("EG4TOOL_PORT") or guess_port()
         if not port:
-            raise CliError("no port given and no single USB serial port found; use --port (see 'eg4tool ports')")
+            raise CliError("no port given and no single USB serial port found; use --port (see 'packkeeper ports')")
         try:
             transport = SerialTransport(port, params=driver.serial)
         except Exception as e:  # serial.SerialException and OS errors
@@ -254,7 +254,7 @@ def cmd_diff(args) -> int:
 
 def parse_pairs(pairs: list[str], fahrenheit: bool, table: SettingTable) -> dict[str, int]:
     if len(pairs) % 2:
-        raise CliError("give settings as KEY VALUE pairs (see 'eg4tool keys')")
+        raise CliError("give settings as KEY VALUE pairs (see 'packkeeper keys')")
     out: dict[str, int] = {}
     for key, value in zip(pairs[::2], pairs[1::2]):
         s = table.get(key)

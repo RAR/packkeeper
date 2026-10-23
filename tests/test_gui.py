@@ -10,15 +10,15 @@ pytest.importorskip("PySide6")
 
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
-from eg4tool import gui  # noqa: E402
-from eg4tool.service import CONFIRMED, NOT_APPLIED  # noqa: E402
+from packkeeper import gui  # noqa: E402
+from packkeeper.service import CONFIRMED, NOT_APPLIED  # noqa: E402
 
-SHOTS = os.environ.get("EG4TOOL_SHOTS")
+SHOTS = os.environ.get("PACKKEEPER_SHOTS")
 
 
 @pytest.fixture
 def window(tmp_path, monkeypatch):
-    from eg4tool import qtcommon
+    from packkeeper import qtcommon
     monkeypatch.setattr(qtcommon, "data_dir", lambda: tmp_path)
     app = QApplication.instance() or QApplication([])
     w = gui.MainWindow()
@@ -38,7 +38,7 @@ def wait(app, cond, timeout=5.0):
 
 
 def connect_sim(app, w, **sim_kw):
-    from eg4tool.drivers.eg4_ll import sim
+    from packkeeper.drivers.eg4_ll import sim
 
     if sim_kw:
         orig = sim.FakePack
@@ -151,7 +151,7 @@ def test_compare_with_profile_and_stage(window):
 
 def test_restore_over_vendor_reset(window):
     app, w = window
-    from eg4tool.drivers.eg4_ll import sim
+    from packkeeper.drivers.eg4_ll import sim
     orig = sim.FakePack
 
     def broken(**kw):
@@ -231,7 +231,7 @@ def test_linked_pair_revert_unstages_partner(window):
 
 def test_silent_port_pauses_live_and_keeps_disconnect(window, monkeypatch):
     app, w = window
-    from eg4tool.drivers.eg4_ll import sim
+    from packkeeper.drivers.eg4_ll import sim
     monkeypatch.setattr(gui.QMessageBox, "warning", lambda *a, **k: None)
     orig = sim.FakePack
 
@@ -267,8 +267,8 @@ def test_bms_selector_shows_the_driver_and_locks_while_connected(window):
 def test_backup_from_another_bms_is_not_offered(window, monkeypatch, tmp_path):
     app, w = window
     connect_sim(app, w)
-    from eg4tool import backup
-    from eg4tool.block import Block
+    from packkeeper import backup
+    from packkeeper.block import Block
 
     class Other:
         label = "Other BMS"
@@ -285,7 +285,7 @@ def test_backup_from_another_bms_is_not_offered(window, monkeypatch, tmp_path):
 
 
 def test_gui_runs_a_toy_bms(tmp_path, monkeypatch):
-    from eg4tool import drivers, qtcommon
+    from packkeeper import drivers, qtcommon
     from toy_driver import TOY
     monkeypatch.setitem(drivers.DRIVERS, "toy", TOY)
     monkeypatch.setattr(qtcommon, "data_dir", lambda: tmp_path)
@@ -322,7 +322,7 @@ def test_gui_runs_a_toy_bms(tmp_path, monkeypatch):
 def test_backup_from_the_same_bms_is_offered(window, monkeypatch, tmp_path):
     app, w = window
     connect_sim(app, w)
-    from eg4tool import backup
+    from packkeeper import backup
     path = tmp_path / "same.json"
     backup.save(path, w.settings.block)
     monkeypatch.setattr(gui.settings_view.QFileDialog, "getOpenFileName", lambda *a, **k: (str(path), ""))
@@ -333,7 +333,7 @@ def test_backup_from_the_same_bms_is_offered(window, monkeypatch, tmp_path):
 
 def test_identity_warning_tags_the_pack(window):
     app, w = window
-    from eg4tool.drivers.eg4_ll import sim
+    from packkeeper.drivers.eg4_ll import sim
     orig = sim.FakePack
 
     def other_model(**kw):

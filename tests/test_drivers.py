@@ -3,10 +3,10 @@ from pathlib import Path
 
 import pytest
 
-from eg4tool.settings import LinkedPair, Rule, SettingTable
+from packkeeper.settings import LinkedPair, Rule, SettingTable
 
 VENDORED_SHA256 = "de30c596b51dc56acefa0e36a00903b3a6a56220ae54a31d9517da3a19ed78bd"
-SRC = Path(__file__).parent.parent / "src" / "eg4tool"
+SRC = Path(__file__).parent.parent / "src" / "packkeeper"
 
 
 def test_vendored_table_is_byte_for_byte_upstream():
@@ -46,7 +46,7 @@ def test_setting_table_rejects_unknown_keys():
 
 
 def test_eg4_table_matches_the_old_globals():
-    from eg4tool.drivers.eg4_ll.table import TABLE
+    from packkeeper.drivers.eg4_ll.table import TABLE
     assert len(TABLE) == 51
     assert TABLE["balance_delta_voltage"].minimum == TABLE["balance_delta_voltage"].multiplier * 20
     assert [tuple(p) for p in TABLE.linked] == [("short_circuit_current", "discharge_overcurrent_2_protection")]
@@ -55,7 +55,7 @@ def test_eg4_table_matches_the_old_globals():
 
 
 def test_registry_has_eg4_ll_by_default():
-    from eg4tool import drivers
+    from packkeeper import drivers
     assert drivers.DEFAULT == "eg4-ll"
     d = drivers.get("eg4-ll")
     assert d.label == "EG4-LL" and d.block_start == 0x2D and d.block_count == 91
@@ -64,7 +64,7 @@ def test_registry_has_eg4_ll_by_default():
 
 
 def test_eg4_profile_block_is_bound_to_its_driver():
-    from eg4tool.drivers.eg4_ll import DRIVER
+    from packkeeper.drivers.eg4_ll import DRIVER
     ref = DRIVER.profiles["eg4-shipped"].block
     assert ref.driver is DRIVER
     assert ref.identity.model == "ZTR-16S200A-10KW-STD2"
@@ -73,24 +73,24 @@ def test_eg4_profile_block_is_bound_to_its_driver():
 
 
 def test_block_length_comes_from_the_driver():
-    from eg4tool.drivers.eg4_ll import DRIVER
+    from packkeeper.drivers.eg4_ll import DRIVER
     with pytest.raises(ValueError, match="91"):
         DRIVER.block([0] * 90)
 
 
 def test_eg4_pages_cover_every_setting_once():
-    from eg4tool.drivers.eg4_ll import DRIVER
+    from packkeeper.drivers.eg4_ll import DRIVER
     assert sorted(DRIVER.ordered_keys) == sorted(DRIVER.table)
     assert all(DRIVER.pages[DRIVER.page_of[k]] for k in DRIVER.table)
 
 
 import json  # noqa: E402
 
-from eg4tool import backup  # noqa: E402
-from eg4tool.block import DriverMismatch  # noqa: E402
-from eg4tool.drivers.eg4_ll import DRIVER as EG4_LL  # noqa: E402
-from eg4tool.planner import make_plan  # noqa: E402
-from eg4tool.service import diff_blocks  # noqa: E402
+from packkeeper import backup  # noqa: E402
+from packkeeper.block import DriverMismatch  # noqa: E402
+from packkeeper.drivers.eg4_ll import DRIVER as EG4_LL  # noqa: E402
+from packkeeper.planner import make_plan  # noqa: E402
+from packkeeper.service import diff_blocks  # noqa: E402
 
 REF = EG4_LL.profiles["eg4-shipped"].block
 
@@ -130,7 +130,7 @@ def test_dry_run_frames_use_the_driver():
 
 
 def test_cli_bms_option(tmp_path, capsys):
-    from eg4tool.cli import main
+    from packkeeper.cli import main
     assert main(["keys", "--bms", "eg4-ll"]) == 0
     assert "cell_overvoltage_protection" in capsys.readouterr().out
     assert main(["info", "--simulate", "--bms", "eg4-ll", "--log-dir", str(tmp_path)]) == 0
@@ -139,24 +139,24 @@ def test_cli_bms_option(tmp_path, capsys):
 
 
 def test_cli_rejects_unknown_bms(capsys):
-    from eg4tool.cli import main
+    from packkeeper.cli import main
     with pytest.raises(SystemExit):
         main(["keys", "--bms", "nope"])
     assert "nope" in capsys.readouterr().err
 
 
 def test_cli_profile_names_come_from_the_driver(tmp_path, capsys):
-    from eg4tool.cli import main
+    from packkeeper.cli import main
     assert main(["diff", "--profile", "nope", "--simulate", "--log-dir", str(tmp_path)]) == 2
     assert "eg4-shipped" in capsys.readouterr().err
 
 
 import ast
 
-from eg4tool import drivers
-from eg4tool.planner import targets_from_block
-from eg4tool.service import CONFIRMED, NOT_APPLIED, apply_plan
-from eg4tool.session import SessionLog
+from packkeeper import drivers
+from packkeeper.planner import targets_from_block
+from packkeeper.service import CONFIRMED, NOT_APPLIED, apply_plan
+from packkeeper.session import SessionLog
 
 from toy_driver import TOY  # tests/ is on sys.path under pytest's rootdir conftest-less mode
 
@@ -213,7 +213,7 @@ def test_nothing_crosses_between_bms_types():
         diff_blocks(REF, TOY_REF)
     with pytest.raises(DriverMismatch):
         make_plan(REF, targets_from_block(TOY_REF), source=TOY_REF)
-    from eg4tool.planner import identity_warnings
+    from packkeeper.planner import identity_warnings
     with pytest.raises(DriverMismatch):
         identity_warnings(REF, TOY_REF, "the backup")
     _sim, dev = toy_device()
@@ -241,7 +241,7 @@ def test_generic_code_never_imports_the_eg4_driver():
 
 def test_apply_plan_refuses_a_forged_change_to_a_non_writable_register():
     import dataclasses
-    from eg4tool.planner import Change
+    from packkeeper.planner import Change
     sim, dev = toy_device()
     plan = make_plan(dev.read_block(), {"low_cut": 290})
     assert plan.ok
@@ -253,7 +253,7 @@ def test_apply_plan_refuses_a_forged_change_to_a_non_writable_register():
 
 
 def test_toy_device_refuses_to_write_a_non_writable_register():
-    from eg4tool.device import PackError
+    from packkeeper.device import PackError
     sim, dev = toy_device()
     with pytest.raises(PackError):
         dev.write_setting(0x100, 1)

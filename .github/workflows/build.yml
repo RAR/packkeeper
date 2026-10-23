@@ -47,28 +47,28 @@ jobs:
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: Compress-Archive -Path "dist/EG4 BMS Tool.exe", "dist/eg4tool.exe", README.md -DestinationPath "eg4tool-${{ matrix.name }}.zip"
+        run: Compress-Archive -Path "dist/PackKeeper.exe", "dist/cli/packkeeper-cli.exe", README.md -DestinationPath "packkeeper-${{ matrix.name }}.zip"
 
       - name: Package (macOS)
         if: runner.os == 'macOS'
         run: |
           mkdir pkg
-          ditto "dist/EG4 BMS Tool.app" "pkg/EG4 BMS Tool.app"
-          cp dist/eg4tool README.md pkg/
-          ditto -c -k --keepParent pkg "eg4tool-${{ matrix.name }}.zip"
+          ditto "dist/PackKeeper.app" "pkg/PackKeeper.app"
+          cp dist/cli/packkeeper README.md pkg/
+          ditto -c -k --keepParent pkg "packkeeper-${{ matrix.name }}.zip"
 
       - name: Package (Linux)
         if: runner.os == 'Linux'
         run: |
           mkdir pkg
-          cp "dist/EG4 BMS Tool" pkg/eg4-bms-tool
-          cp dist/eg4tool README.md pkg/
-          tar -czf "eg4tool-${{ matrix.name }}.tar.gz" -C pkg .
+          cp "dist/PackKeeper" pkg/packkeeper-gui
+          cp dist/cli/packkeeper README.md pkg/
+          tar -czf "packkeeper-${{ matrix.name }}.tar.gz" -C pkg .
 
       - uses: actions/upload-artifact@v4
         with:
-          name: eg4tool-${{ matrix.name }}
-          path: eg4tool-${{ matrix.name }}.*
+          name: packkeeper-${{ matrix.name }}
+          path: packkeeper-${{ matrix.name }}.*
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

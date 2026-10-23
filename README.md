@@ -1,4 +1,4 @@
-# EG4 BMS Tool
+# PackKeeper
 
 Back up, compare and restore the protection settings of an EG4-LL battery pack
 (other BMS types can be added as drivers) over RS232, through the right-most of its paralleling ports. It runs on Windows, macOS and Linux, as a desktop
@@ -48,7 +48,7 @@ pack linked to others does) returns every threshold zero. The tool refuses such 
 
 ## Desktop app
 
-Open **EG4 BMS Tool**, pick the adapter's port and click **Connect**.
+Open **PackKeeper**, pick the adapter's port and click **Connect**.
 
 - **Live:** read-only pack voltage, current, SOC/SOH, cells, temperatures,
   and decoded status / warning / protection bits.
@@ -76,7 +76,8 @@ Open **EG4 BMS Tool**, pick the adapter's port and click **Connect**.
 - **Clock:** sets the BMS clock to the computer's time, confirmed by
   reading it back.
 - **Log:** every frame sent and received (hex) and every result. Session logs
-  and the pre-write backups go to `Documents/EG4 BMS Tool/`.
+  and the pre-write backups go to `Documents/PackKeeper/`. (Before the app was
+  renamed they went to `Documents/EG4 BMS Tool/`, which is left as it was.)
 
 Choose **Simulated pack** in the port list to try everything without
 hardware.
@@ -84,25 +85,25 @@ hardware.
 ## Command line
 
 ```
-eg4tool ports                              list serial ports
-eg4tool info                               model, firmware, clock, live readings
-eg4tool backup pack1.json                  save the settings (raw block + decoded)
-eg4tool diff pack1.json                    compare the pack with a backup
-eg4tool diff --profile eg4-shipped         ... or with EG4's shipped values
-eg4tool set cell_overvoltage_warning 3.65  change a setting (KEY VALUE, repeatable)
-eg4tool restore pack1.json [--skip k1,k2]  write a backup back
-eg4tool restore --profile eg4-shipped      restore EG4's shipped values
-eg4tool copy                               read one pack, swap, write it to another
-eg4tool clock [--now | --set '...']        show or set the BMS clock
-eg4tool live [--once]                      read-only live view
-eg4tool keys                               setting keys, registers, safe ranges
-eg4tool gui                                open the desktop app
+packkeeper ports                              list serial ports
+packkeeper info                               model, firmware, clock, live readings
+packkeeper backup pack1.json                  save the settings (raw block + decoded)
+packkeeper diff pack1.json                    compare the pack with a backup
+packkeeper diff --profile eg4-shipped         ... or with EG4's shipped values
+packkeeper set cell_overvoltage_warning 3.65  change a setting (KEY VALUE, repeatable)
+packkeeper restore pack1.json [--skip k1,k2]  write a backup back
+packkeeper restore --profile eg4-shipped      restore EG4's shipped values
+packkeeper copy                               read one pack, swap, write it to another
+packkeeper clock [--now | --set '...']        show or set the BMS clock
+packkeeper live [--once]                      read-only live view
+packkeeper keys                               setting keys, registers, safe ranges
+packkeeper gui                                open the desktop app
 ```
 
 Common options:
 
 - `--port` / `-p` picks the port. The default is the only USB serial port,
-  or `$EG4TOOL_PORT`.
+  or `$PACKKEEPER_PORT` (the old `$EG4TOOL_PORT` still works).
 - `-F` shows (and accepts) °F.
 - `--dry-run` / `-n` on any write command prints the frames it would send.
 - `--simulate` uses a fake pack. Add `--sim-state FILE` to keep its state
@@ -111,13 +112,13 @@ Common options:
 Every run writes a session log next to the backup file, or in the current
 directory, or in `--log-dir`. `diff` exits 1 when the pack differs.
 
-On Windows, `EG4 BMS Tool.exe` is windowed and has no console. Use
-`eg4tool.exe` for the command line.
+On Windows, `PackKeeper.exe` is windowed and has no console. Use
+`packkeeper-cli.exe` for the command line.
 
 ## Adding a BMS
 
 Everything specific to one BMS family lives in a driver package under
-`src/eg4tool/drivers/` (see `eg4_ll/` for the complete example). A driver
+`src/packkeeper/drivers/` (see `eg4_ll/` for the complete example). A driver
 subclasses `drivers.base.Driver` and provides:
 
 - a `SettingTable`: registers, scaling, safe ranges, the order rules
@@ -144,18 +145,18 @@ A new driver should only ever be used for `info`, `backup`, `diff` and
 ## Safe ranges and rules
 
 The settings, their encodings, LIMITS and ORDER rules are
-[`src/eg4tool/drivers/eg4_ll/settings_table.py`](src/eg4tool/drivers/eg4_ll/settings_table.py). It is
+[`src/packkeeper/drivers/eg4_ll/settings_table.py`](src/packkeeper/drivers/eg4_ll/settings_table.py). It is
 vendored unchanged from
 [esphome-eg4-bms](https://github.com/RAR/esphome-eg4-bms) (`feat/rs232-service`,
 `cb105bf`), so the ESPHome component and this tool share one source of truth. This
 tool's own tightening (`LIMIT_OVERRIDES` and the linked 0x52/0x54 pair) lives
-in [`src/eg4tool/drivers/eg4_ll/table.py`](src/eg4tool/drivers/eg4_ll/table.py).
+in [`src/packkeeper/drivers/eg4_ll/table.py`](src/packkeeper/drivers/eg4_ll/table.py).
 
 - **Tighten, never loosen.** No limit lets a protection go past what the pack
   ships with (cell OV 3.80 V, pack OV 60.80 V, cell UV 2.30 V, currents
   300 A, and so on).
 - The balance delta minimum is raised to **0.020 V** in
-  [`settings.py`](src/eg4tool/settings.py) (`LIMIT_OVERRIDES`). The pack
+  [`settings.py`](src/packkeeper/settings.py) (`LIMIT_OVERRIDES`). The pack
   drops anything lower.
 - **Short circuit (0x52) and discharge OC 2 (0x54) are linked.** The
   component and REGISTER_MAP.md disagree on which register is which, and
@@ -177,7 +178,7 @@ diff.
 
 ```
 python -m pip install ".[gui]"     # Python 3.11+
-eg4tool gui
+packkeeper gui
 ```
 
 - **Linux:** add yourself to the `dialout` group (or `uucp` on Arch) to open

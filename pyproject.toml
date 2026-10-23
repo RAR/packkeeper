@@ -3,8 +3,8 @@ requires = ["setuptools>=68"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "eg4tool"
-description = "Back up, diff and restore EG4-LL battery pack protection settings over RS232"
+name = "packkeeper"
+description = "Back up, diff and restore battery pack BMS protection settings over RS232 (EG4-LL for now)"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"
@@ -16,13 +16,13 @@ gui = ["PySide6>=6.6"]
 dev = ["pytest>=8", "pyinstaller>=6.10"]
 
 [project.scripts]
-eg4tool = "eg4tool.cli:main"
+packkeeper = "packkeeper.cli:main"
 
 [project.gui-scripts]
-eg4tool-gui = "eg4tool.gui:main"
+packkeeper-gui = "packkeeper.gui:main"
 
 [tool.setuptools.dynamic]
-version = { attr = "eg4tool.__version__" }
+version = { attr = "packkeeper.__version__" }
 
 [tool.setuptools.packages.find]
 where = ["src"]

@@ -13,7 +13,7 @@ from .service import StaleError
 from .settings import SettingError
 from .transport import NoReply
 
-APP_NAME = "EG4 BMS Tool"
+APP_NAME = "PackKeeper"
 
 GOOD = QColor(46, 160, 67)
 BAD = QColor(218, 54, 51)

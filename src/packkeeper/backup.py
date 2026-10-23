@@ -84,7 +84,7 @@ def load(path: Path) -> Backup:
 
 def from_dict(data: dict, where: str = "backup") -> Backup:
     if not isinstance(data, dict) or data.get("format") != FORMAT:
-        raise BackupError(f"{where} is not an eg4tool backup")
+        raise BackupError(f"{where} is not an packkeeper backup")
     version = data.get("format_version")
     if version not in READABLE_VERSIONS:
         raise BackupError(f"{where}: unsupported format version {version}")

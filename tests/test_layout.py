@@ -1,6 +1,6 @@
 from collections import Counter
 
-from eg4tool.drivers.eg4_ll import DRIVER
+from packkeeper.drivers.eg4_ll import DRIVER
 
 ORDERED_KEYS, PAGES, SETTINGS = DRIVER.ordered_keys, DRIVER.pages, DRIVER.table
 

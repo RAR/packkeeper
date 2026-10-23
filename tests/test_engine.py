@@ -5,18 +5,18 @@ from pathlib import Path
 
 import pytest
 
-from eg4tool import backup, modbus
-from eg4tool.block import BlankBlockError
-from eg4tool.drivers.eg4_ll import DRIVER as EG4_LL
-from eg4tool.drivers.eg4_ll.live import decode as decode_live
-from eg4tool.drivers.eg4_ll.profiles import EG4_SHIPPED_FRAME, REALTIME_FRAMES
-from eg4tool.drivers.eg4_ll.registers import pack_clock, unpack_clock
-from eg4tool.drivers.eg4_ll.sim import FakePack
-from eg4tool.modbus import registers_of
-from eg4tool.planner import make_plan, targets_from_block
-from eg4tool.service import CONFIRMED, NOT_APPLIED, NOT_ATTEMPTED, StaleError, apply_plan, diff_blocks, set_clock
-from eg4tool.session import SessionLog
-from eg4tool.settings import Rule, SettingError, f_to_c_exact
+from packkeeper import backup, modbus
+from packkeeper.block import BlankBlockError
+from packkeeper.drivers.eg4_ll import DRIVER as EG4_LL
+from packkeeper.drivers.eg4_ll.live import decode as decode_live
+from packkeeper.drivers.eg4_ll.profiles import EG4_SHIPPED_FRAME, REALTIME_FRAMES
+from packkeeper.drivers.eg4_ll.registers import pack_clock, unpack_clock
+from packkeeper.drivers.eg4_ll.sim import FakePack
+from packkeeper.modbus import registers_of
+from packkeeper.planner import make_plan, targets_from_block
+from packkeeper.service import CONFIRMED, NOT_APPLIED, NOT_ATTEMPTED, StaleError, apply_plan, diff_blocks, set_clock
+from packkeeper.session import SessionLog
+from packkeeper.settings import Rule, SettingError, f_to_c_exact
 
 SETTINGS, ORDER = EG4_LL.table, EG4_LL.table.order
 FRAMES = Path(__file__).parent / "rs232_service_frames.txt"
@@ -253,7 +253,7 @@ def test_no_valid_order_refused_with_blockers(monkeypatch):
     # happen (a write only waits on a neighbour moving the same way, toward
     # the end of an acyclic chain), so force one: the planner must refuse and
     # name the blocking rules, never pick an order anyway.
-    from eg4tool import planner
+    from packkeeper import planner
     rules = [Rule("cell_overvoltage_release", "cell_overvoltage_warning", True),
              Rule("cell_overvoltage_warning", "cell_overvoltage_protection", True)]
     targets = {"cell_overvoltage_release": 3750, "cell_overvoltage_warning": 3790}
@@ -265,7 +265,7 @@ def test_no_valid_order_refused_with_blockers(monkeypatch):
 
 
 def test_deadlock_path_names_rules():
-    from eg4tool import planner
+    from packkeeper import planner
     rules = [Rule("cell_overvoltage_release", "cell_overvoltage_warning", True),
              Rule("cell_overvoltage_warning", "cell_overvoltage_protection", True)]
     order, stuck = planner._order(REF.driver.table, REF.raws(), {"cell_overvoltage_release": 3750, "cell_overvoltage_warning": 3800}, rules)
@@ -348,7 +348,7 @@ def test_clock_set_and_confirmed():
 
 def test_pack_refuses_non_threshold_writes():
     sim, pack = fake_pack()
-    from eg4tool.device import PackError
+    from packkeeper.device import PackError
     for reg in (0x2D, 0x2E, 0x69, 0x7F, 0x88):
         with pytest.raises(PackError):
             pack.write_setting(reg, 1)
@@ -440,7 +440,7 @@ def test_random_valid_targets_always_get_a_safe_order():
 
 
 def test_write_without_read_back_is_unverified_not_unsent():
-    from eg4tool.service import UNVERIFIED
+    from packkeeper.service import UNVERIFIED
     sim, pack = fake_pack()
     p = make_plan(pack.read_block(), {"cell_overvoltage_warning": 3650, "charge_overcurrent_1_protection": 20000})
     sim.silent_after_write = 3  # applies and acks the write, then goes quiet for every retry
@@ -465,7 +465,7 @@ def test_long_decimal_input_is_not_rounded_onto_a_step():
 
 
 def test_resync_drops_line_noise():
-    from eg4tool.transport import resync
+    from packkeeper.transport import resync
     good = EG4_SHIPPED_FRAME
     assert resync(b"\x00\xff" + good, 1, 3) == (good, b"\x00\xff")
     assert resync(b"\x01\x10" + good, 1, 3) == (good, b"\x01\x10")  # 01 followed by the wrong function
@@ -473,7 +473,7 @@ def test_resync_drops_line_noise():
 
 
 def test_serial_transport_survives_leading_noise(monkeypatch):
-    from eg4tool import transport
+    from packkeeper import transport
 
     class FakeSerial:
         def __init__(self, *a, **k):
@@ -523,7 +523,7 @@ def test_write_refused_with_exception_is_read_back_not_unverified():
 def test_late_reply_is_not_taken_for_the_next_request(monkeypatch):
     # The pack answers the first request after the reply deadline; the retry
     # must not take that late reply as its own.
-    from eg4tool import transport
+    from packkeeper import transport
 
     class SlowSerial:
         def __init__(self, *a, **k):
@@ -575,7 +575,7 @@ def test_step_error_shows_the_typed_value():
 
 
 def test_cli_backup_refuses_to_overwrite(tmp_path, capsys):
-    from eg4tool.cli import main
+    from packkeeper.cli import main
     f = tmp_path / "b.json"
     assert main(["backup", str(f), "--simulate", "--log-dir", str(tmp_path)]) == 0
     assert main(["backup", str(f), "--simulate", "--log-dir", str(tmp_path)]) == 2

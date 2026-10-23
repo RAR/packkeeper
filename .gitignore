@@ -5,6 +5,6 @@ build/
 dist/
 *.spec
 .pytest_cache/
-eg4tool-*.log
-eg4tool-*.before-*.json
+packkeeper-*.log
+packkeeper-*.before-*.json
 .DS_Store
