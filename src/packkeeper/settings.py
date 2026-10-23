@@ -34,10 +34,25 @@ class Setting:
     step: Decimal
     group: str
     label: str
+    width: int = 1  # 16-bit registers it occupies
+    signed: bool = False
+    stride: int = 1  # address step between its registers
+    word_order: str = "high_first"  # or "low_first"
 
     @property
     def is_temperature(self) -> bool:
         return self.unit == "°C"
+
+    @property
+    def registers(self) -> tuple[int, ...]:
+        return tuple(self.register + i * self.stride for i in range(self.width))
+
+    @property
+    def raw_bounds(self) -> tuple[int, int]:
+        bits = 16 * self.width
+        if self.signed:
+            return -(1 << (bits - 1)), (1 << (bits - 1)) - 1
+        return 0, (1 << bits) - 1
 
     @property
     def display_unit(self) -> str:
@@ -50,6 +65,26 @@ class Setting:
     def value(self, raw: int) -> Decimal:
         return raw * self.multiplier + self.offset
 
+    def encode(self, raw: int) -> list[int]:
+        """The register words for `raw`, in the order they sit in the device."""
+        lo, hi = self.raw_bounds
+        if not lo <= raw <= hi:
+            raise SettingError(f"{self.label}: {raw} does not fit the register")
+        v = raw & ((1 << (16 * self.width)) - 1)
+        words = [(v >> (16 * (self.width - 1 - i))) & 0xFFFF for i in range(self.width)]
+        return words[::-1] if self.word_order == "low_first" else words
+
+    def decode(self, words) -> int:
+        words = list(words)
+        if self.word_order == "low_first":
+            words.reverse()
+        v = 0
+        for w in words:
+            v = v << 16 | w
+        if self.signed and v >= 1 << (16 * self.width - 1):
+            v -= 1 << (16 * self.width)
+        return v
+
     def raw(self, value: Decimal) -> int:
         """Exact raw value; refuses a value between two register steps."""
         with localcontext() as ctx:
@@ -61,7 +96,8 @@ class Setting:
         if r != r.to_integral_value():
             raise SettingError(f"{self.label}: {value} is not a multiple of {self.multiplier}")
         r = int(r)
-        if not 0 <= r <= 0xFFFF:
+        lo, hi = self.raw_bounds
+        if not lo <= r <= hi:
             raise SettingError(f"{self.label}: {value} does not fit the register")
         return r
 
@@ -180,6 +216,12 @@ class SettingTable:
                     raise ValueError(f"linked pair names unknown setting '{k}'")
         self.settings = settings
         self.by_register: dict[int, Setting] = {s.register: s for s in settings.values()}
+        self.covering: dict[int, Setting] = {}
+        for s in settings.values():
+            for r in s.registers:
+                if r in self.covering:
+                    raise ValueError(f"{s.key} and {self.covering[r].key} both use register 0x{r:02X}")
+                self.covering[r] = s
         self.order = list(order)
         self.linked = list(linked)
         self.rank = self._ranks()
@@ -194,11 +236,15 @@ class SettingTable:
         overrides: dict[str, tuple] | None = None,
         group: Callable[[str], str] | None = None,
         label: Callable[[str], str] | None = None,
+        stride: int = 1,
+        word_order: str = "high_first",
     ) -> "SettingTable":
-        """From an esphome-style table: key -> (register, multiplier, offset, unit, class, decimals)."""
+        """From an esphome-style table: key -> (register, multiplier, offset, unit, class, decimals[, width, signed])."""
         overrides = overrides or {}
         settings = {}
-        for key, (reg, mult, offset, unit, _cls, decimals) in table.items():
+        for key, (reg, mult, offset, unit, _cls, decimals, *wide) in table.items():
+            width = wide[0] if wide else 1
+            signed = wide[1] if len(wide) > 1 else False
             lo, hi, step = overrides.get(key, limits[key])
             settings[key] = Setting(
                 key=key,
@@ -212,6 +258,10 @@ class SettingTable:
                 step=_dec(step),
                 group=group(key) if group else "Settings",
                 label=label(key) if label else default_label(key),
+                width=width,
+                signed=signed,
+                stride=stride,
+                word_order=word_order,
             )
         return cls(settings, [Rule(lo, hi, strict) for lo, hi, strict in order], list(linked))
 
