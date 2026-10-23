@@ -50,7 +50,7 @@ def to_dict(block: Block, port: str | None = None) -> dict:
             "model": block.model,
             "firmware": block.firmware,
             "serial": block.serial,
-            "serial_note": "the same on every pack; cannot identify a pack" if block.serial else None,
+            "serial_note": "the same on every pack; cannot identify a pack" if block.serial and not d.serial_is_unique else None,
             "bms_clock": clock.isoformat(sep=" ") if clock else None,
         },
         "areas": [

@@ -43,6 +43,9 @@ class Driver:
     address_choices: range | None = None  # None: always at `address`
     framing = MODBUS  # the wire protocol; new_framing() gives each device its own state
     broadcast_address: int | None = 0  # an address every device on the bus obeys, or None
+    find_addresses: range | None = None  # addresses Find tries; within address_choices
+    find_probe: Area | None = None  # the quick read Find uses to see who answers
+    serial_is_unique: bool = False  # True when the serial tells packs apart
     pages: tuple[Page, ...] = ()
     live_reads: tuple[Area | tuple[int, int], ...] = ()  # Area (or (start, count)) reads, concatenated for decode_live
     supports_clock: bool = False

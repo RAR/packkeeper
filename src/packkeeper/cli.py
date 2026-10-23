@@ -1,4 +1,4 @@
-"""Command line: packkeeper ports | info | backup | diff | set | restore | copy | clock | live | keys | gui."""
+"""Command line: packkeeper ports | info | backup | diff | set | restore | copy | clock | find | live | keys | gui."""
 
 from __future__ import annotations
 
@@ -14,6 +14,7 @@ from . import __version__, backup, drivers
 from .block import BlankBlockError, Block, DriverMismatch
 from .device import BROADCAST_WARNING, ModbusDevice, PackError
 from .errors import FrameError
+from .find import scan
 from .modbus import ModbusError
 from .planner import Plan, identity_warnings, make_plan, targets_from_block
 from .service import NOT_ATTEMPTED, UNVERIFIED, StaleError, apply_plan, diff_blocks, set_clock
@@ -128,6 +129,9 @@ def build_parser() -> argparse.ArgumentParser:
     s.add_argument("--utc", action="store_true", help="with --now: use UTC instead of local time")
     s.set_defaults(func=cmd_clock)
 
+    s = sub.add_parser("find", parents=[common], help="list the addresses that answer (reads only)")
+    s.set_defaults(func=cmd_find)
+
     s = sub.add_parser("live", parents=[common], help="read-only live view of the pack")
     s.add_argument("--interval", type=float, default=2.0)
     s.add_argument("--once", action="store_true")
@@ -159,6 +163,14 @@ def open_pack(args, near: Path | None = None) -> ModbusDevice:
     log_dir = Path(args.log_dir) if args.log_dir else (near.resolve().parent if near else None)
     log = SessionLog(default_log_path(log_dir))
     log.info(f"BMS type {driver.label}")
+    transport = open_transport(args, driver, log)
+    if address is not None:
+        log.info(f"address {address}")
+    return driver.open_device(transport, log, address)
+
+
+def open_transport(args, driver, log):
+    """The serial port (or the simulated pack) the arguments name; logs and prints where."""
     if args.simulate:
         transport = driver.simulator(state_file=args.sim_state)
         name = "simulated pack"
@@ -175,9 +187,7 @@ def open_pack(args, near: Path | None = None) -> ModbusDevice:
         name = port
     log.info(f"port {name}")
     print(f"Port: {name}   Log: {log.path}")
-    if address is not None:
-        log.info(f"address {address}")
-    return driver.open_device(transport, log, address)
+    return transport
 
 
 # --- commands --------------------------------------------------------------
@@ -192,13 +202,33 @@ def cmd_ports(args) -> int:
     return 0
 
 
+def cmd_find(args) -> int:
+    driver = driver_of(args)
+    if driver.find_addresses is None:
+        raise CliError(f"the {driver.label} has no address to find")
+    log_dir = Path(args.log_dir) if args.log_dir else None
+    log = SessionLog(default_log_path(log_dir))
+    log.info(f"BMS type {driver.label}")
+    transport = open_transport(args, driver, log)
+    try:
+        found = scan(driver, transport, driver.find_addresses, log)
+    finally:
+        transport.close()
+    for f in found:
+        print(f"address {f.address:3d}  {f.model}  {f.serial}  {f.note}".rstrip())
+    if not found:
+        print("No pack answered.")
+    return 0 if found else 1
+
+
 def print_identity(block: Block) -> None:
     ident = block.identity
     print(f"BMS       {block.driver.label}")
     print(f"Model     {ident.model}")
     print(f"Firmware  {ident.firmware}")
     if ident.serial:
-        print(f"Serial    {ident.serial}  (the same on every pack; does not identify it)")
+        note = "" if block.driver.serial_is_unique else "  (the same on every pack; does not identify it)"
+        print(f"Serial    {ident.serial}{note}")
     if block.driver.supports_clock:
         bad = f"invalid (0x{ident.clock_raw:08X})" if ident.clock_raw is not None else "invalid"
         print(f"BMS clock {ident.clock or bad}")

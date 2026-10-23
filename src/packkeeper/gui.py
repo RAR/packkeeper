@@ -29,6 +29,7 @@ from PySide6.QtWidgets import (
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
+    QInputDialog,
     QHeaderView,
     QLabel,
     QLineEdit,
@@ -47,6 +48,7 @@ from PySide6.QtWidgets import (
 from . import __version__, backup, drivers, qtcommon, settings_view
 from .block import Block
 from .device import BROADCAST_WARNING, ModbusDevice
+from .find import scan
 from .live import Live
 from .planner import Plan, identity_warnings, make_plan
 from .qtcommon import APP_NAME, BAD, GOOD, WARN, error_text
@@ -542,6 +544,9 @@ class MainWindow(QMainWindow):
         self.address = QSpinBox()
         self.address.setToolTip("The pack's Modbus address (its DIP switch setting)")
         bar.addWidget(self.address)
+        self.find_btn = QPushButton("Find…")
+        self.find_btn.setToolTip("Look for packs on the bus and pick the address of one (reads only)")
+        bar.addWidget(self.find_btn)
         bar.addWidget(QLabel("Port:"))
         self.ports = QComboBox()
         self.ports.setMinimumWidth(320)
@@ -588,6 +593,7 @@ class MainWindow(QMainWindow):
 
         self.refresh_btn.clicked.connect(self.refresh_ports)
         self.connect_btn.clicked.connect(self.toggle_connect)
+        self.find_btn.clicked.connect(self.find_packs)
         self.fahrenheit_box.toggled.connect(self.units_changed)
         self.settings.review_requested.connect(self.review)
         self.bms.currentIndexChanged.connect(self.driver_changed)
@@ -622,6 +628,7 @@ class MainWindow(QMainWindow):
         choices = d.address_choices
         self.address_label.setVisible(choices is not None)
         self.address.setVisible(choices is not None)
+        self.find_btn.setVisible(d.find_addresses is not None)
         if choices is not None:
             self.address.setRange(choices.start, choices.stop - 1)
             self.address.setValue(d.address)
@@ -690,6 +697,7 @@ class MainWindow(QMainWindow):
         self.connect_btn.setText("Disconnect" if on else "Connect")
         self.bms.setEnabled(not on and not self.worker.busy)
         self.address.setEnabled(not on)
+        self.find_btn.setEnabled(not on)
         self.ports.setEnabled(not on)
         self.refresh_btn.setEnabled(not on)
         self.settings.read_btn.setEnabled(on)
@@ -741,6 +749,56 @@ class MainWindow(QMainWindow):
         self.poll_live()
         self.live_timer.start(2000)
 
+    def find_packs(self):
+        device = self.ports.currentData()
+        if not device or self.pack is not None or self.worker.busy:
+            return
+        driver = self.driver
+        if driver.find_addresses is None:
+            return
+        self.log = SessionLog(default_log_path(qtcommon.data_dir()))
+        self._log_shown = 0
+        self.log_view.clear()
+        self.log_path.setText(f"Session log: {self.log.path}")
+        try:
+            if device == SIM_PORT:
+                transport = driver.simulator()
+            else:
+                from .transport import SerialTransport
+
+                transport = SerialTransport(device, params=driver.serial, framing=driver.framing)
+        except Exception as e:  # noqa: BLE001
+            self.log.error(f"cannot open {device}: {e}")
+            QMessageBox.critical(self, "Cannot open port", f"Cannot open {device}:\n{e}")
+            return
+        log = self.log
+        self.log.info(f"BMS type {driver.label}")
+        self.log.info(f"port {device}")
+        self.find_btn.setEnabled(False)
+        self.status("Looking for packs…")
+
+        def job():
+            try:
+                return scan(driver, transport, driver.find_addresses, log)
+            finally:
+                transport.close()
+
+        self.worker.submit(job, self.got_found)
+
+    def got_found(self, found, err: Exception | None):
+        self.find_btn.setEnabled(self.pack is None)
+        if err is not None:
+            QMessageBox.warning(self, "Find failed", error_text(err, self.driver))
+            return
+        if not found:
+            self.status("No pack answered. Check the cable, power and baud rate.", error=True)
+            return
+        items = [f"address {f.address} — {f.model} — {f.serial}" for f in found]
+        choice, ok = QInputDialog.getItem(self, "Find", "Packs that answered:", items, 0, False)
+        if ok and choice in items:
+            self.address.setValue(found[items.index(choice)].address)
+            self.status(f"Address set to {self.address.value()}.")
+
     def disconnect_pack(self):
         pack = self.pack
         self.pack = None
@@ -778,6 +836,8 @@ class MainWindow(QMainWindow):
         for warning in warnings:
             self.log.warn(warning)
         text = f"<b>{block.model}</b> · firmware {block.firmware}"
+        if block.driver.serial_is_unique and block.serial:
+            text += f" · {block.serial}"
         if warnings:
             text += f" · <b style='color:{WARN.name()}'>check BMS type</b>"
         refusal = self.pack.write_refusal

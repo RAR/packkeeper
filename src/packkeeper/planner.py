@@ -216,4 +216,6 @@ def identity_warnings(pack: Block, source: Block, source_name: str) -> list[str]
         out.append(
             f"{source_name} is from BMS firmware '{source.firmware}', this pack runs '{pack.firmware}'"
         )
+    if pack.driver.serial_is_unique and source.serial and pack.serial and source.serial != pack.serial:
+        out.append(f"{source_name} is from pack '{source.serial}', the connected pack is '{pack.serial}'")
     return out
