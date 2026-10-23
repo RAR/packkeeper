@@ -611,3 +611,37 @@ def test_gui_runs_jbd_up_with_find(window, monkeypatch):
     dlg.write_btn.click()
     wait(app, lambda: dlg.result is not None)
     assert dlg.result.ok
+
+
+def test_hidden_unsafe_differences_are_not_counted(tmp_path, monkeypatch):
+    app, w = toy_window(tmp_path, monkeypatch)
+    try:
+        monkeypatch.setattr(gui.settings_view.QMessageBox, "warning", lambda *a, **k: None)
+        s = w.settings
+        cells_reg = s.table["cells"].register
+        s.add_source(gui.settings_view.Source("other", s.block.with_raws({cells_reg: s.block.raw("cells") - 1})))
+        s.refresh()
+        assert "Nothing to stage" in s.stage_btn.text() and not s.stage_btn.isEnabled()
+        assert "left alone" in s.ref_text.text() and "differ" in s.ref_text.text()
+        assert "setting(s) on the pack differ" not in s.ref_text.text()
+        s.unsafe_box.setChecked(True)
+        assert "1 setting(s) on the pack differ" in s.ref_text.text()
+        assert s.stage_btn.isEnabled() and "left alone" not in s.ref_text.text()
+    finally:
+        w.close()
+
+
+def test_choice_edit_ignores_wheel_without_focus(app_instance=None):
+    from PySide6.QtCore import QPoint, QPointF, Qt
+    from PySide6.QtGui import QWheelEvent
+    from PySide6.QtWidgets import QApplication
+
+    QApplication.instance() or QApplication([])
+    box = gui.settings_view.ChoiceEdit([(0, "a"), (1, "b"), (2, "c")])
+    box.show()
+    assert box.focusPolicy() == Qt.FocusPolicy.StrongFocus and not box.hasFocus()
+    ev = QWheelEvent(QPointF(5, 5), QPointF(5, 5), QPoint(0, 0), QPoint(0, -120), Qt.MouseButton.NoButton,
+                     Qt.KeyboardModifier.NoModifier, Qt.ScrollPhase.NoScrollPhase, False)
+    box.wheelEvent(ev)
+    assert box.currentText() == "a" and not ev.isAccepted()
+    box.close()

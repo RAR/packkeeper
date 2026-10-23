@@ -108,7 +108,7 @@ Common options:
 - `--dry-run` / `-n` on any write command prints the frames it would send.
 - `--simulate` uses a fake pack. Add `--sim-state FILE` to keep its state
   between runs.
-- `--address N` picks the Modbus address, for BMS types that have one to choose (JK-PB).
+- `--address N` picks the Modbus address, for BMS types that have one to choose (JK-PB, ECO-WORTHY / JBD-UP).
 - `--unsafe` allows changing unsafe settings (BMS types that have them); each is confirmed by typing `unsafe`.
 
 Every run writes a session log next to the backup file, or in the current

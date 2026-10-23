@@ -247,3 +247,25 @@ def test_key_comes_from_the_pack_protocol_register():
     p = make_plan(b, {"cell_ov_protection": 3600})
     assert p.frames(dev.address, dev.framing)[0][8] == 0x13
     assert apply_plan(dev, p).results[0].status == CONFIRMED
+
+
+def test_full_capacity_above_design_can_still_plan_and_apply():
+    sim, dev = jbd()
+    sim.mem[0x2002] = 10250  # 102.50 Ah learned on a 100.00 Ah pack
+    p = make_plan(dev.read_block(), {"cell_ov_protection": 3600})
+    assert p.ok, p.errors
+    res = apply_plan(dev, p)
+    assert res.ok and res.results[0].status == CONFIRMED
+
+
+def test_apply_plan_refuses_a_forged_unsafe_change():
+    from packkeeper.planner import Change
+
+    sim, dev = jbd()
+    block = dev.read_block()
+    p = make_plan(block, {"cell_ov_protection": 3600})
+    cells = dev.driver.table["cells_in_series"]
+    p.changes.append(Change(cells, block.raw("cells_in_series"), block.raw("cells_in_series") - 1))
+    with pytest.raises(ValueError, match="unsafe setting"):
+        apply_plan(dev, p)
+    assert sim.writes == []

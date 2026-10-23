@@ -51,6 +51,7 @@ class Plan:
     warnings: list[str] = field(default_factory=list)
     notes: list[str] = field(default_factory=list)
     problem_keys: set[str] = field(default_factory=set)  # settings named by an error
+    allow_unsafe: bool = False  # made with unsafe settings on
 
     @property
     def ok(self) -> bool:
@@ -88,7 +89,7 @@ def make_plan(
     table = base.driver.table
     rules = table.order if rules is None else rules
     linked = table.linked if linked is None else linked
-    plan = Plan(base=base)
+    plan = Plan(base=base, allow_unsafe=allow_unsafe)
     base.check_not_blank()
     current = base.raws()
 

@@ -94,6 +94,12 @@ def apply_plan(
                     f"refusing to apply the plan: 0x{r:02X} is not a writable register "
                     f"on the {pack.driver.label}; nothing was written"
                 )
+    for change in plan.changes:
+        if change.setting.unsafe and not plan.allow_unsafe:
+            raise ValueError(
+                f"refusing to apply the plan: {change.setting.label} is an unsafe setting and the plan "
+                "was not made with unsafe settings on; nothing was written"
+            )
     table = plan.base.driver.table
 
     now = pack.read_block()

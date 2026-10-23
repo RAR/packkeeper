@@ -106,7 +106,15 @@ class ChoiceEdit(QComboBox):
         super().__init__()
         self._names = [name for _raw, name in choices]
         self.addItems(self._names)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.activated.connect(lambda _i: self.editingFinished.emit())
+
+    def wheelEvent(self, e):
+        """Scroll the page, not the value, unless the drop-down has focus."""
+        if self.hasFocus():
+            super().wheelEvent(e)
+        else:
+            e.ignore()
 
     def text(self) -> str:
         return self.currentText()
@@ -640,11 +648,15 @@ class SettingsTab(QWidget):
         self.backup_btn.setEnabled(has)
         self.copy_btn.setEnabled(has)
 
+    def _visible(self, key: str) -> bool:
+        """Whether a setting takes part now: unsafe ones only while the box is ticked."""
+        return self.unsafe_on or not self.table[key].unsafe
+
     def _render_nav(self, src: Source | None, problems: set[str]):
         for page, (_name, h) in zip(self.driver.pages, self.nav_widgets):
             while h.count() > 2:  # name, stretch, then pills
                 _drop(h.takeAt(2).widget())
-            keys = page.keys
+            keys = [k for k in page.keys if self._visible(k)]
             bad = sum(k in problems or k in self.bad for k in keys)
             staged = sum(k in self.staged for k in keys)
             differs = 0
@@ -704,7 +716,11 @@ class SettingsTab(QWidget):
         # Comparison box.
         self.ref_box.setVisible(src is not None and self.block is not None)
         if src is not None and self.block is not None:
-            diff = [k for k in self.driver.ordered_keys if src.block.raw(k) != self.block.raw(k)]
+            diff = [k for k in self.driver.ordered_keys if self._visible(k) and src.block.raw(k) != self.block.raw(k)]
+            hidden = sum(
+                self.table[k].unsafe and src.block.raw(k) != self.block.raw(k)
+                for k in self.driver.ordered_keys if not self._visible(k)
+            )
             pending = [k for k in diff if self.staged.get(k) != src.block.raw(k)]
             lines = [f"<b>{src.name}</b>"]
             if not diff:
@@ -712,6 +728,11 @@ class SettingsTab(QWidget):
             else:
                 lines.append(f"{len(diff)} setting(s) on the pack differ" +
                              (f", {len(diff) - len(pending)} staged." if len(pending) < len(diff) else "."))
+            if hidden:
+                lines.append(
+                    f"{hidden} unsafe setting(s) differ and are left alone "
+                    "(tick Show unsafe settings to include them)."
+                )
             lines += [f"<span style='color:{WARN.name()}'>{w}</span>"
                       for w in identity_warnings(self.block, src.block, "It")]
             self.ref_text.setText("<br>".join(lines))
