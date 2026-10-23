@@ -544,3 +544,43 @@ def test_bits_setting_commits_hex(tmp_path, monkeypatch):
         wait(app, lambda: w.settings.staged.get("flags") == 0x11)
     finally:
         w.close()
+
+
+def _stage_all_with_source(app, w):
+    s = w.settings
+    other = s.block.with_raws({0x302: 20, 0x301: 350})
+    s.add_source(gui.settings_view.Source("other", other))
+    s.stage_all()
+    return s
+
+
+def test_stage_all_skips_unsafe_when_box_off(tmp_path, monkeypatch):
+    app, w = toy_window(tmp_path, monkeypatch)
+    try:
+        s = _stage_all_with_source(app, w)
+        assert "cells" not in s.staged and "volts" in s.staged
+    finally:
+        w.close()
+
+
+def test_stage_all_includes_unsafe_when_box_on(tmp_path, monkeypatch):
+    app, w = toy_window(tmp_path, monkeypatch)
+    try:
+        monkeypatch.setattr(gui.settings_view.QMessageBox, "warning", lambda *a, **k: None)
+        w.settings.unsafe_box.setChecked(True)
+        s = _stage_all_with_source(app, w)
+        assert "cells" in s.staged and "volts" in s.staged
+    finally:
+        w.close()
+
+
+def test_review_refuses_unsafe_when_box_off(tmp_path, monkeypatch):
+    app, w = toy_window(tmp_path, monkeypatch)
+    try:
+        w.settings.staged["cells"] = 15
+        dlg = open_review(app, w, monkeypatch)
+        assert not dlg.plan.ok and any("unsafe" in e for e in dlg.plan.errors)
+        dlg.ack.setChecked(True)
+        assert not dlg.write_btn.isEnabled()
+    finally:
+        w.close()
