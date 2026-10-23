@@ -7,9 +7,8 @@ from pathlib import Path
 from PySide6.QtCore import QStandardPaths
 from PySide6.QtGui import QColor
 
-from . import backup
+from . import backup, drivers
 from .block import BlankBlockError
-from .pack import CONNECTION_HELP
 from .service import StaleError
 from .settings import SettingError
 from .transport import NoReply
@@ -32,7 +31,7 @@ def data_dir() -> Path:
 
 def error_text(e: Exception) -> str:
     if isinstance(e, NoReply):
-        return f"{e}\n\n{CONNECTION_HELP}"
+        return f"{e}\n\n{drivers.get(drivers.DEFAULT).connection_help}"
     if isinstance(e, (BlankBlockError, StaleError, SettingError, backup.BackupError)):
         return str(e)
     return f"{type(e).__name__}: {e}"

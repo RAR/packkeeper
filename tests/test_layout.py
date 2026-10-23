@@ -1,7 +1,8 @@
 from collections import Counter
 
-from eg4tool.layout import ORDERED_KEYS, PAGES
-from eg4tool.settings import SETTINGS
+from eg4tool.drivers.eg4_ll import DRIVER
+
+ORDERED_KEYS, PAGES, SETTINGS = DRIVER.ordered_keys, DRIVER.pages, DRIVER.table
 
 
 def test_every_setting_shown_exactly_once():

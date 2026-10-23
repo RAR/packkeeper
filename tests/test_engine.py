@@ -6,17 +6,20 @@ from pathlib import Path
 import pytest
 
 from eg4tool import backup, modbus
-from eg4tool.block import Block, BlankBlockError, Realtime, pack_clock, unpack_clock
-from eg4tool.pack import Pack
+from eg4tool.block import BlankBlockError
+from eg4tool.drivers.eg4_ll import DRIVER as EG4_LL
+from eg4tool.drivers.eg4_ll.live import decode as decode_live
+from eg4tool.drivers.eg4_ll.profiles import EG4_SHIPPED_FRAME, REALTIME_FRAMES
+from eg4tool.drivers.eg4_ll.registers import pack_clock, unpack_clock
+from eg4tool.drivers.eg4_ll.sim import FakePack
+from eg4tool.modbus import registers_of
 from eg4tool.planner import make_plan, targets_from_block
-from eg4tool.profiles import EG4_SHIPPED, EG4_SHIPPED_FRAME, REALTIME_FRAMES, registers_of
 from eg4tool.service import CONFIRMED, NOT_APPLIED, NOT_ATTEMPTED, StaleError, apply_plan, diff_blocks, set_clock
 from eg4tool.session import SessionLog
 from eg4tool.settings import ORDER, SETTINGS, Rule, SettingError, f_to_c_exact
-from eg4tool.sim import FakePack
 
 FRAMES = Path(__file__).parent / "rs232_service_frames.txt"
-REF = EG4_SHIPPED.block
+REF = EG4_LL.profiles["eg4-shipped"].block
 
 # What the vendor BMS tool shows for the reference pack (settings_table_test.py).
 EXPECTED = {
@@ -48,7 +51,7 @@ def raw(key, text):
 
 def fake_pack(**kw):
     sim = FakePack(**kw)
-    return sim, Pack(sim, SessionLog())
+    return sim, EG4_LL.open_device(sim, SessionLog())
 
 
 # --- framing ---------------------------------------------------------------
@@ -105,7 +108,7 @@ def test_reference_block_satisfies_rules():
 
 
 def test_realtime_decode():
-    rt = Realtime.decode(registers_of(REALTIME_FRAMES[0]) + registers_of(REALTIME_FRAMES[1]))
+    rt = decode_live(registers_of(REALTIME_FRAMES[0]) + registers_of(REALTIME_FRAMES[1]))
     assert rt.pack_voltage == pytest.approx(53.30)
     assert rt.current == pytest.approx(26.30)
     assert len(rt.cells) == 16 and rt.cells[0] == pytest.approx(3.330)
@@ -123,8 +126,8 @@ def test_clock_packing_roundtrip():
 
 
 def test_blank_block_refused():
-    blank = Block(tuple(0 if 0x2F <= 0x2D + i <= 0x68 or 0x80 <= 0x2D + i else v
-                        for i, v in enumerate(REF.registers)))
+    blank = EG4_LL.block(0 if 0x2F <= 0x2D + i <= 0x68 or 0x80 <= 0x2D + i else v
+                         for i, v in enumerate(REF.registers))
     with pytest.raises(BlankBlockError):
         blank.check_not_blank()
     sim, pack = fake_pack(blank_thresholds=True)
@@ -344,16 +347,16 @@ def test_clock_set_and_confirmed():
 
 def test_pack_refuses_non_threshold_writes():
     sim, pack = fake_pack()
-    from eg4tool.pack import PackError
+    from eg4tool.device import PackError
     for reg in (0x2D, 0x2E, 0x69, 0x7F, 0x88):
         with pytest.raises(PackError):
-            pack.write_register(reg, 1)
+            pack.write_setting(reg, 1)
     assert sim.writes == []
 
 
 def test_session_log_records_frames(tmp_path):
     log = SessionLog(tmp_path / "s.log")
-    pack = Pack(FakePack(), log)
+    pack = EG4_LL.open_device(FakePack(), log)
     pack.read_block()
     text = (tmp_path / "s.log").read_text()
     assert "TX     01 03 00 2D 00 5B 94 38" in text
@@ -393,7 +396,7 @@ def test_edited_backup_refused(tmp_path):
 
 def test_blank_backup_refused(tmp_path):
     with pytest.raises(BlankBlockError):
-        backup.save(tmp_path / "b.json", Block(tuple([0] * 91)))
+        backup.save(tmp_path / "b.json", EG4_LL.block([0] * 91))
 
 
 def test_random_valid_targets_always_get_a_safe_order():
@@ -494,7 +497,7 @@ def test_serial_transport_survives_leading_noise(monkeypatch):
     import serial
     monkeypatch.setattr(serial, "Serial", FakeSerial)
     log = SessionLog()
-    pack = Pack(transport.SerialTransport("FAKE"), log)
+    pack = EG4_LL.open_device(transport.SerialTransport("FAKE"), log)
     assert pack.read_block().model.startswith("ZTR")
     assert any("line noise" in line for line in log.lines)
 
@@ -560,7 +563,7 @@ def test_late_reply_is_not_taken_for_the_next_request(monkeypatch):
 
     import serial
     monkeypatch.setattr(serial, "Serial", SlowSerial)
-    pack = Pack(transport.SerialTransport("FAKE"), SessionLog())
+    pack = EG4_LL.open_device(transport.SerialTransport("FAKE"), SessionLog())
     block = pack.read_block()
     assert block.registers[0] == 0x6AA8  # the retry's own reply, not the late 0xAAAA one
 

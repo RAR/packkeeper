@@ -33,16 +33,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import backup, qtcommon
+from . import backup, drivers, qtcommon
 from .block import Block
-from .layout import COLUMN_HELP, ORDERED_KEYS, PAGE_OF, PAGES, TEMP, Page
+from .layout import COLUMN_HELP, TEMP, Page
 from .planner import Plan, identity_warnings, make_plan, targets_from_block
-from .profiles import PROFILES
 from .qtcommon import ACCENT, BAD, WARN
 from .settings import LINKED_PAIRS, SETTINGS, SettingError
 
 if TYPE_CHECKING:
     from .gui import MainWindow
+
+DRIVER = drivers.get(drivers.DEFAULT)  # Task 5 replaces this
+PAGES, ORDERED_KEYS, PAGE_OF = DRIVER.pages, DRIVER.ordered_keys, DRIVER.page_of
 
 FIELD_WIDTH = 104
 PARTNER = {a: b for a, b in LINKED_PAIRS} | {b: a for a, b in LINKED_PAIRS}
@@ -253,7 +255,7 @@ class SettingsTab(QWidget):
         self.main = main
         self.block: Block | None = None
         self.read_at: datetime | None = None
-        self.sources: list[Source] = [Source(p.short, p.block, p.label) for p in PROFILES.values()]
+        self.sources: list[Source] = [Source(p.short, p.block, p.label) for p in DRIVER.profiles.values()]
         self.staged: dict[str, int] = {}
         self.bad: dict[str, tuple[str, str]] = {}  # key -> (text typed, why it was refused)
         self.plan: Plan | None = None

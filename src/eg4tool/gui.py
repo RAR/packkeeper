@@ -42,15 +42,18 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, backup, qtcommon
-from .block import Block, Realtime
-from .pack import Pack
+from . import __version__, backup, drivers, qtcommon
+from .block import Block
+from .device import ModbusDevice
+from .live import Live
 from .planner import Plan, identity_warnings, make_plan
 from .qtcommon import APP_NAME, BAD, GOOD, WARN, error_text
 from .service import CONFIRMED, NOT_APPLIED, UNVERIFIED, ApplyResult, apply_plan, set_clock
 from .session import SessionLog, default_log_path
 from .settings_view import SettingsTab
 from .transport import NoReply, list_ports
+
+DRIVER = drivers.get(drivers.DEFAULT)  # Task 5 replaces this with the BMS selector
 
 SIM_PORT = "Simulated pack (no hardware)"
 ONE_PACK_NOTE = (
@@ -184,7 +187,7 @@ class LiveTab(QWidget):
         self.updated.setStyleSheet("color: palette(placeholder-text);")
         lay.addWidget(self.updated)
 
-    def show_realtime(self, rt: Realtime, fahrenheit: bool):
+    def show_realtime(self, rt: Live, fahrenheit: bool):
         def t(c: int) -> str:
             return f"{c * 9 / 5 + 32:.0f} °F" if fahrenheit else f"{c} °C"
 
@@ -193,18 +196,19 @@ class LiveTab(QWidget):
         self.soc.set(f"{rt.soc} %")
         self.soh.set(f"{rt.soh} %")
         self.delta.set(f"{rt.cell_delta * 1000:.0f} mV", WARN if rt.cell_delta > 0.05 else None)
-        self.temp.set(t(rt.max_temp))
+        self.temp.set(t(rt.max_temp) if rt.max_temp is not None else "—")
 
         def tags(items: list[str], color: QColor, none: str) -> str:
             if not items:
                 return f"<span style='color:{GOOD.name()}'>{none}</span>"
             return ", ".join(f"<b style='color:{color.name()}'>{x}</b>" for x in items)
 
-        charge = "allowed" if rt.charge_allowed else f"<b style='color:{BAD.name()}'>BLOCKED</b>"
-        discharge = "allowed" if rt.discharge_allowed else f"<b style='color:{BAD.name()}'>BLOCKED</b>"
-        self.status.setText(
-            f"<b>Status:</b> {rt.status_text} &nbsp;·&nbsp; charge {charge}, discharge {discharge}"
-        )
+        allowed = ""
+        if rt.charge_allowed is not None:
+            charge = "allowed" if rt.charge_allowed else f"<b style='color:{BAD.name()}'>BLOCKED</b>"
+            discharge = "allowed" if rt.discharge_allowed else f"<b style='color:{BAD.name()}'>BLOCKED</b>"
+            allowed = f" &nbsp;·&nbsp; charge {charge}, discharge {discharge}"
+        self.status.setText(f"<b>Status:</b> {rt.status_text}{allowed}")
         self.alarms.setText(
             f"<b>Protection:</b> {tags(rt.protections, BAD, 'none')} &nbsp;·&nbsp; "
             f"<b>Warnings:</b> {tags(rt.warnings, WARN, 'none')} &nbsp;·&nbsp; "
@@ -225,14 +229,14 @@ class LiveTab(QWidget):
                 lbl.setStyleSheet(f"border: 2px solid {QColor(56, 132, 255).name()};")
             else:
                 lbl.setStyleSheet("")
-        self.details.setText(
-            f"<b>Capacity:</b> {rt.remaining_ah} Ah remaining of {rt.full_capacity_ah:.1f} Ah full "
-            f"(design {rt.design_capacity_ah:.1f} Ah) &nbsp;·&nbsp; <b>Cycles:</b> {rt.cycles}"
-        )
-        self.temps.setText(
-            f"<b>Temperatures:</b> PCB {t(rt.pcb_temp)}, average {t(rt.avg_temp)}, max {t(rt.max_temp)}; "
-            f"sensors {', '.join(t(x) for x in rt.temps)}"
-        )
+        if rt.full_capacity_ah is not None:
+            self.details.setText(
+                f"<b>Capacity:</b> {rt.remaining_ah} Ah remaining of {rt.full_capacity_ah:.1f} Ah full "
+                f"(design {rt.design_capacity_ah:.1f} Ah) &nbsp;·&nbsp; <b>Cycles:</b> {rt.cycles}"
+            )
+        else:
+            self.details.setText("")
+        self.temps.setText(f"<b>Temperatures:</b> {', '.join(f'{label} {t(v)}' for label, v in rt.temps)}")
         self.updated.setText(f"Updated {datetime.now():%H:%M:%S}. Read-only: nothing here writes to the pack.")
 
 
@@ -449,12 +453,8 @@ class ClockTab(QWidget):
         self.set_btn.setEnabled(block is not None)
 
     def set_clock(self):
-        from .block import pack_clock
-        from .modbus import write_request
-
         now = datetime.now().replace(microsecond=0)
-        packed = pack_clock(now)
-        frame = write_request(1, 0x2D, [packed >> 16, packed & 0xFFFF]).hex(" ").upper()
+        frame = self.main.pack.driver.clock_frame(now).hex(" ").upper()
         if self.dry.isChecked():
             self.main.log.info(f"dry run frame {frame}")
             self.result.setText(f"Dry run. Would send <code>{frame}</code> (time {now}). Nothing was written.")
@@ -489,7 +489,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle(f"{APP_NAME} {__version__}")
         self.resize(1240, 800)
         self.worker = Worker()
-        self.pack: Pack | None = None
+        self.pack: ModbusDevice | None = None
         self.port_name: str | None = None
         self.log: SessionLog | None = None
         self._log_shown = 0
@@ -570,7 +570,7 @@ class MainWindow(QMainWindow):
         self.refresh_ports()
         self.set_connected(False)
         self.statusBar().showMessage("Choose the adapter's port and Connect.")
-        self._last_rt: Realtime | None = None
+        self._last_rt: Live | None = None
 
     # helpers
     @property
@@ -644,20 +644,18 @@ class MainWindow(QMainWindow):
         self.log_path.setText(f"Session log: {self.log.path}")
         try:
             if device == SIM_PORT:
-                from .sim import FakePack
-
-                transport = FakePack()
+                transport = DRIVER.simulator()
             else:
                 from .transport import SerialTransport
 
-                transport = SerialTransport(device)
+                transport = SerialTransport(device, params=DRIVER.serial)
         except Exception as e:  # noqa: BLE001
             self.log.error(f"cannot open {device}: {e}")
             QMessageBox.critical(self, "Cannot open port", f"Cannot open {device}:\n{e}")
             return
         self.port_name = device
         self.log.info(f"port {device}")
-        self.pack = Pack(transport, self.log)
+        self.pack = DRIVER.open_device(transport, self.log)
         self.set_connected(True)
         self.status(f"Connected to {device}. Reading the pack…")
         self.read_settings()
@@ -700,9 +698,9 @@ class MainWindow(QMainWindow):
         if self.pack is None or self.worker.busy:
             return
         pack = self.pack
-        self.worker.submit(lambda: pack.read_realtime(retries=1), self.got_live)
+        self.worker.submit(lambda: pack.read_live(retries=1), self.got_live)
 
-    def got_live(self, rt: Realtime | None, err: Exception | None):
+    def got_live(self, rt: Live | None, err: Exception | None):
         if self.pack is None:
             return
         if err is not None:

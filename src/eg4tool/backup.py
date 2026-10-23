@@ -91,7 +91,9 @@ def from_dict(data: dict, where: str = "backup") -> Backup:
     if not isinstance(regs, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in regs):
         raise BackupError(f"{where}: 'registers' must be a list of integers")
     try:
-        block = Block(tuple(regs))
+        from .drivers.eg4_ll import DRIVER  # transitional: Task 3 reads the driver from the backup
+
+        block = DRIVER.block(regs)
         block.check_not_blank()
     except (ValueError, BlankBlockError) as e:
         raise BackupError(f"{where}: {e}") from None

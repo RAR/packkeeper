@@ -1,4 +1,4 @@
-"""Modbus RTU framing for the pack's RS232 link (its right-most paralleling port).
+"""Modbus RTU framing: FC03 reads and FC16 writes, checked by hand.
 
 Only the two function codes the pack uses: FC03 (read holding registers) and
 FC16 (write multiple registers). Frames are built and checked by hand; the
@@ -8,6 +8,8 @@ shapes follow components/eg4_modbus/eg4_modbus_frame.h in esphome-eg4-bms.
 from __future__ import annotations
 
 import struct
+
+from .errors import DeviceRefused
 
 FC_READ = 0x03
 FC_WRITE = 0x10
@@ -26,7 +28,7 @@ class ModbusError(Exception):
     """A reply that is malformed, mismatched or a Modbus exception."""
 
 
-class ModbusException(ModbusError):
+class ModbusException(ModbusError, DeviceRefused):
     def __init__(self, function: int, code: int):
         self.function = function
         self.code = code
@@ -114,3 +116,11 @@ def _check_common(address: int, function: int, reply: bytes) -> None:
         raise ModbusException(function, reply[2])
     if reply[1] != function:
         raise ModbusError(f"reply function 0x{reply[1]:02X}, expected 0x{function:02X}")
+
+
+def registers_of(frame: bytes) -> list[int]:
+    """The registers carried by a captured FC03 reply."""
+    if not crc_ok(frame) or frame[1] != FC_READ:
+        raise ValueError("not a valid FC03 reply")
+    data = frame[3:-2]
+    return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]

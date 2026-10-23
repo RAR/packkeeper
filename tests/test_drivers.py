@@ -51,3 +51,33 @@ def test_eg4_table_matches_the_old_globals():
     assert [tuple(p) for p in TABLE.linked] == [("short_circuit_current", "discharge_overcurrent_2_protection")]
     assert TABLE["cell_overvoltage_protection"].group == "Cell voltage"
     assert TABLE["mos_overtemp_warning"].label == "MOSFET OT warning"
+
+
+def test_registry_has_eg4_ll_by_default():
+    from eg4tool import drivers
+    assert drivers.DEFAULT == "eg4-ll"
+    d = drivers.get("eg4-ll")
+    assert d.label == "EG4-LL" and d.block_start == 0x2D and d.block_count == 91
+    with pytest.raises(drivers.UnknownDriver, match="nope"):
+        drivers.get("nope")
+
+
+def test_eg4_profile_block_is_bound_to_its_driver():
+    from eg4tool.drivers.eg4_ll import DRIVER
+    ref = DRIVER.profiles["eg4-shipped"].block
+    assert ref.driver is DRIVER
+    assert ref.identity.model == "ZTR-16S200A-10KW-STD2"
+    assert DRIVER.identity_warnings(ref) == []
+    assert DRIVER.identity_warnings(ref.with_raws({0x69: 0x4142})) != []  # model text "AB..."
+
+
+def test_block_length_comes_from_the_driver():
+    from eg4tool.drivers.eg4_ll import DRIVER
+    with pytest.raises(ValueError, match="91"):
+        DRIVER.block([0] * 90)
+
+
+def test_eg4_pages_cover_every_setting_once():
+    from eg4tool.drivers.eg4_ll import DRIVER
+    assert sorted(DRIVER.ordered_keys) == sorted(DRIVER.table)
+    assert all(DRIVER.pages[DRIVER.page_of[k]] for k in DRIVER.table)

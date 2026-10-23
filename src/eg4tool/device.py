@@ -1,29 +1,20 @@
-"""Talking to one pack: reads, single-register writes, every frame logged."""
+"""Talking to one device: reads, single-register writes, every frame logged."""
 
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from . import modbus
-from .block import Block, Realtime, pack_clock
+from .block import Block
+from .live import Live
 from .session import SessionLog
-from .settings import BLOCK_COUNT, REG_BLOCK, REG_CLOCK, is_threshold_register
 from .transport import NoReply
 
-ADDRESS = 1  # over RS232 the pack answers at address 1 whatever the DIP ID
-READ_RETRIES = 3
+if TYPE_CHECKING:
+    from .drivers.base import Driver
 
-CONNECTION_HELP = """\
-The pack only answers over RS232 when no other pack is linked to it:
-unplug the link cables from its paralleling ports. (Its DIP ID does not
-matter: it always answers at address 1 here.) Also check:
-  - the adapter is plugged into the pack's RIGHT-MOST paralleling port
-    (there is no separate service port; EG4's own cable uses this one),
-  - the adapter is RS232-level (not TTL),
-  - TX and RX: adapter TX -> pack RXD, adapter RX -> pack TXD, plus GND
-    (if nothing decodes, swap TX and RX),
-  - the right port is selected (115200 8N1)."""
+READ_RETRIES = 3
 
 
 class Transport(Protocol):
@@ -35,11 +26,23 @@ class PackError(Exception):
     pass
 
 
-class Pack:
-    def __init__(self, transport: Transport, log: SessionLog, address: int = ADDRESS):
+class Device(Protocol):
+    driver: "Driver"
+    log: SessionLog
+
+    def read_block(self) -> Block: ...
+    def read_live(self, retries: int = READ_RETRIES) -> Live: ...
+    def write_setting(self, register: int, raw: int) -> bool: ...
+    def write_clock(self, t: datetime) -> bool: ...
+    def close(self) -> None: ...
+
+
+class ModbusDevice:
+    def __init__(self, driver: "Driver", transport: Transport, log: SessionLog):
+        self.driver = driver
         self.transport = transport
         self.log = log
-        self.address = address
+        self.address = driver.address
 
     def _transact(self, request: bytes) -> bytes:
         self.log.tx(request)
@@ -77,28 +80,34 @@ class Pack:
         raise last
 
     def read_block(self) -> Block:
-        """The parameter block; refuses an all-zero threshold block."""
-        block = Block(tuple(self.read(REG_BLOCK, BLOCK_COUNT)))
-        if block.thresholds_blank:
-            self.log.error("parameter block has every threshold zero (read over the RS485 bus, not RS232?)")
+        """The settings block; refuses a read the driver calls blank."""
+        d = self.driver
+        block = d.block(self.read(d.block_start, d.block_count))
+        reason = d.blank_reason(block)
+        if reason:
+            self.log.error(f"refusing this read: {reason}")
         return block.check_not_blank()
 
-    def read_realtime(self, retries: int = READ_RETRIES) -> Realtime:
-        regs = self.read(0x00, 0x12, retries) + self.read(0x12, 0x15, retries)
-        return Realtime.decode(regs)
+    def read_live(self, retries: int = READ_RETRIES) -> Live:
+        regs: list[int] = []
+        for start, count in self.driver.live_reads:
+            regs += self.read(start, count, retries)
+        return self.driver.decode_live(regs)
 
-    def write_register(self, register: int, raw: int) -> bool:
+    def write_setting(self, register: int, raw: int) -> bool:
         """One FC16 single-register write. True if acked, False if no ack.
 
         The ack proves nothing: callers must re-read the block to confirm.
         """
-        if not is_threshold_register(register):
-            raise PackError(f"refusing to write 0x{register:02X}: not a threshold register")
+        if not self.driver.is_writable(register):
+            raise PackError(f"refusing to write 0x{register:02X}: not a writable settings register")
         return self._write(register, [raw])
 
     def write_clock(self, t: datetime) -> bool:
-        packed = pack_clock(t)
-        return self._write(REG_CLOCK, [packed >> 16, packed & 0xFFFF])
+        if not self.driver.supports_clock:
+            raise PackError(f"the {self.driver.label} has no clock to set")
+        register, values = self.driver.clock_write(t)
+        return self._write(register, values)
 
     def _write(self, register: int, values: list[int]) -> bool:
         request = modbus.write_request(self.address, register, values)

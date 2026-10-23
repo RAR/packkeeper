@@ -9,16 +9,17 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
-from . import __version__, backup
+from . import __version__, backup, drivers
 from .block import BlankBlockError, Block
+from .device import ModbusDevice, PackError
 from .modbus import ModbusError
-from .pack import CONNECTION_HELP, Pack, PackError
 from .planner import Plan, identity_warnings, make_plan, targets_from_block
-from .profiles import PROFILES
 from .service import NOT_ATTEMPTED, UNVERIFIED, StaleError, apply_plan, diff_blocks, set_clock
 from .session import SessionLog, default_log_path
 from .settings import LINKED_PAIRS, SETTINGS, SettingError
 from .transport import NoReply, guess_port, list_ports
+
+DRIVER = drivers.get(drivers.DEFAULT)  # Task 4 replaces this with --bms
 
 ONE_PACK_NOTE = (
     "One pack at a time: unplug the link cables from the pack's paralleling ports, then plug "
@@ -51,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
         print("\ninterrupted", file=sys.stderr)
         return 130
     except NoReply as e:
-        print(f"error: {e}\n\n{CONNECTION_HELP}", file=sys.stderr)
+        print(f"error: {e}\n\n{DRIVER.connection_help}", file=sys.stderr)
         return 3
     except (CliError, BlankBlockError, backup.BackupError, SettingError, PackError, ModbusError, StaleError) as e:
         print(f"error: {e}", file=sys.stderr)
@@ -93,7 +94,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("diff", parents=[common], help="compare the pack with a backup or a profile")
     g = s.add_mutually_exclusive_group(required=True)
     g.add_argument("file", nargs="?", type=Path)
-    g.add_argument("--profile", choices=sorted(PROFILES))
+    g.add_argument("--profile", choices=sorted(DRIVER.profiles))
     s.set_defaults(func=cmd_diff)
 
     s = sub.add_parser("set", parents=[common, write], help="change one setting (KEY VALUE, repeatable)")
@@ -103,7 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
     s = sub.add_parser("restore", parents=[common, write], help="write a backup or a profile to the pack")
     g = s.add_mutually_exclusive_group(required=True)
     g.add_argument("file", nargs="?", type=Path)
-    g.add_argument("--profile", choices=sorted(PROFILES))
+    g.add_argument("--profile", choices=sorted(DRIVER.profiles))
     s.add_argument("--skip", default="", help="comma-separated setting keys to leave alone")
     s.set_defaults(func=cmd_restore)
 
@@ -135,13 +136,11 @@ def build_parser() -> argparse.ArgumentParser:
 
 # --- connection ------------------------------------------------------------
 
-def open_pack(args, near: Path | None = None) -> Pack:
+def open_pack(args, near: Path | None = None) -> ModbusDevice:
     log_dir = Path(args.log_dir) if args.log_dir else (near.resolve().parent if near else None)
     log = SessionLog(default_log_path(log_dir))
     if args.simulate:
-        from .sim import FakePack
-
-        transport = FakePack(state_file=args.sim_state)
+        transport = DRIVER.simulator(state_file=args.sim_state)
         name = "simulated pack"
     else:
         from .transport import SerialTransport
@@ -150,13 +149,13 @@ def open_pack(args, near: Path | None = None) -> Pack:
         if not port:
             raise CliError("no port given and no single USB serial port found; use --port (see 'eg4tool ports')")
         try:
-            transport = SerialTransport(port)
+            transport = SerialTransport(port, params=DRIVER.serial)
         except Exception as e:  # serial.SerialException and OS errors
             raise CliError(f"cannot open {port}: {e}") from None
         name = port
     log.info(f"port {name}")
     print(f"Port: {name}   Log: {log.path}")
-    return Pack(transport, log)
+    return DRIVER.open_device(transport, log)
 
 
 # --- commands --------------------------------------------------------------
@@ -184,7 +183,7 @@ def cmd_info(args) -> int:
     block = pack.read_block()
     print_identity(block)
     print()
-    for line in pack.read_realtime().summary_lines():
+    for line in pack.read_live().summary_lines():
         print(line)
     return 0
 
@@ -204,7 +203,7 @@ def cmd_backup(args) -> int:
 
 def load_source(args) -> tuple[Block, str]:
     if getattr(args, "profile", None):
-        prof = PROFILES[args.profile]
+        prof = DRIVER.profiles[args.profile]
         return prof.block, prof.label
     b = backup.load(args.file)
     return b.block, f"{args.file} ({b.created})"
@@ -314,7 +313,7 @@ def print_plan(plan: Plan, fahrenheit: bool) -> None:
         print(f"note: {n}")
 
 
-def run_write(pack: Pack, targets: dict[str, int], source_name: str, args, source: Block | None = None) -> int:
+def run_write(pack: ModbusDevice, targets: dict[str, int], source_name: str, args, source: Block | None = None) -> int:
     f = args.fahrenheit
     block = pack.read_block()
     print_identity(block)
@@ -397,11 +396,7 @@ def cmd_clock(args) -> int:
             raise CliError("use --set 'YYYY-MM-DD HH:MM:SS'") from None
     else:
         target = now
-    from .block import pack_clock
-    from .modbus import write_request
-
-    packed = pack_clock(target)
-    frame = write_request(1, 0x2D, [packed >> 16, packed & 0xFFFF])
+    frame = DRIVER.clock_frame(target)
     print(f"\nSet the BMS clock to {target.replace(microsecond=0)}  (frame {frame.hex(' ').upper()})")
     if args.dry_run:
         print("Dry run: nothing written.")
@@ -420,7 +415,7 @@ def cmd_live(args) -> int:
     pack = open_pack(args)
     block = pack.read_block() if not args.once else None
     while True:
-        rt = pack.read_realtime()
+        rt = pack.read_live()
         lines = rt.summary_lines()
         if args.once:
             print("\n".join(lines))

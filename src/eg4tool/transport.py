@@ -1,7 +1,7 @@
 """Serial transport and port discovery.
 
 A transport sends one request frame and returns the raw reply frame. It does
-no Modbus checking beyond knowing how long a reply is; pack.py checks the rest.
+no Modbus checking beyond knowing how long a reply is; device.py checks the rest.
 """
 
 from __future__ import annotations
@@ -13,7 +13,15 @@ from dataclasses import dataclass
 
 from . import modbus
 
-BAUD = 115200
+
+@dataclass(frozen=True)
+class SerialParams:
+    baud: int = 115200
+    bytesize: int = 8
+    parity: str = "N"
+    stopbits: int = 1
+
+
 REPLY_TIMEOUT_S = 1.0
 LATE_REPLY_S = 1.5  # longest wait for a timed-out reply to finish arriving
 QUIET_S = 0.3  # after a timeout, the line must be silent this long before the next request
@@ -80,7 +88,7 @@ def resync(buf: bytes, address: int, function: int) -> tuple[bytes, bytes]:
 
 
 class SerialTransport:
-    def __init__(self, port: str, timeout: float = REPLY_TIMEOUT_S):
+    def __init__(self, port: str, timeout: float = REPLY_TIMEOUT_S, params: SerialParams = SerialParams()):  # noqa: B008 - frozen
         import serial
 
         self.port = port
@@ -90,7 +98,8 @@ class SerialTransport:
         # POSIX ports are shared unless asked otherwise; Windows ports are always exclusive.
         extra = {"exclusive": True} if os.name == "posix" else {}
         self._serial = serial.Serial(
-            port, BAUD, bytesize=8, parity="N", stopbits=1, timeout=0.05, write_timeout=1.0, **extra
+            port, params.baud, bytesize=params.bytesize, parity=params.parity, stopbits=params.stopbits,
+            timeout=0.05, write_timeout=1.0, **extra,
         )
 
     def _drain(self) -> None:

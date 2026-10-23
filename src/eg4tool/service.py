@@ -14,10 +14,10 @@ from datetime import datetime, timedelta
 from typing import Callable
 
 from .block import Block
-from .modbus import ModbusException
-from .pack import Pack
+from .device import Device
+from .errors import DeviceRefused
 from .planner import Change, Plan
-from .settings import BY_REGISTER, LINKED_PAIRS, REG_CLOCK, SETTINGS
+from .settings import BY_REGISTER, LINKED_PAIRS, SETTINGS
 
 CONFIRMED = "confirmed"
 NOT_APPLIED = "NOT applied"
@@ -74,7 +74,7 @@ def describe_register(reg: int, raw: int) -> str:
 
 
 def apply_plan(
-    pack: Pack, plan: Plan, progress: Callable[[int, int, WriteResult], None] | None = None
+    pack: Device, plan: Plan, progress: Callable[[int, int, WriteResult], None] | None = None
 ) -> ApplyResult:
     log = pack.log
     results = [WriteResult(c) for c in plan.changes]
@@ -99,8 +99,8 @@ def apply_plan(
         result.status = UNVERIFIED
         try:
             try:
-                result.acked = pack.write_register(change.register, change.new)
-            except ModbusException as e:
+                result.acked = pack.write_setting(change.register, change.new)
+            except DeviceRefused as e:
                 result.acked = False
                 log.warn(f"the pack refused {change.describe()}: {e}; reading back to see what it holds")
             else:
@@ -181,10 +181,10 @@ class ClockResult:
         return self.after is not None and abs(self.after - self.requested) <= CLOCK_TOLERANCE
 
 
-def set_clock(pack: Pack, t: datetime) -> ClockResult:
+def set_clock(pack: Device, t: datetime) -> ClockResult:
     before = pack.read_block().clock
     t = t.replace(microsecond=0, tzinfo=None)
-    pack.log.info(f"setting BMS clock 0x{REG_CLOCK:02X}-0x{REG_CLOCK + 1:02X} to {t}")
+    pack.log.info(f"setting the BMS clock to {t}")
     acked = pack.write_clock(t)
     after = pack.read_block().clock
     res = ClockResult(before, t, after, acked)

@@ -8,10 +8,8 @@ backup; there is no separate factory reset.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from . import modbus
-from .block import Block
+from ... import modbus
+from ..base import Profile
 
 # Raw replies, CRC included.
 EG4_SHIPPED_FRAME = bytes.fromhex(
@@ -32,26 +30,11 @@ REALTIME_FRAMES = (
 )
 
 
-def registers_of(frame: bytes) -> list[int]:
-    if not modbus.crc_ok(frame) or frame[1] != modbus.FC_READ:
-        raise ValueError("not a valid FC03 reply")
-    data = frame[3:-2]
-    return [int.from_bytes(data[i : i + 2], "big") for i in range(0, len(data), 2)]
-
-
-@dataclass(frozen=True)
-class Profile:
-    name: str
-    label: str
-    short: str
-    block: Block
-
-
-EG4_SHIPPED = Profile(
-    name="eg4-shipped",
-    label="EG4 shipped settings (ZTR-16S200A-10KW-STD2, BMS fw S02T11, captured 2026-10-20)",
-    short="EG4 shipped values",
-    block=Block(tuple(registers_of(EG4_SHIPPED_FRAME))),
-)
-
-PROFILES = {EG4_SHIPPED.name: EG4_SHIPPED}
+def build(driver) -> dict[str, Profile]:
+    shipped = Profile(
+        name="eg4-shipped",
+        label="EG4 shipped settings (ZTR-16S200A-10KW-STD2, BMS fw S02T11, captured 2026-10-20)",
+        short="EG4 shipped values",
+        block=driver.block(modbus.registers_of(EG4_SHIPPED_FRAME)),
+    )
+    return {shipped.name: shipped}
