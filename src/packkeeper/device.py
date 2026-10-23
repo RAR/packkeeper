@@ -31,14 +31,7 @@ class Device(Protocol):
     driver: "Driver"
     log: SessionLog
 
-    def read_area(self, area, retries: int = READ_RETRIES) -> list[int]:
-        """One area, in FC03 reads of at most MAX_READ registers."""
-        area = Area(*area)
-        out: list[int] = []
-        for i in range(0, area.count, MAX_READ):
-            out += self.read(area.start + i * area.stride, min(MAX_READ, area.count - i), retries)
-        return out
-
+    def read_area(self, area, retries: int = READ_RETRIES) -> list[int]: ...
     def read_block(self) -> Block: ...
     def read_live(self, retries: int = READ_RETRIES) -> Live: ...
     def write_setting(self, register: int, raw: int) -> bool: ...
