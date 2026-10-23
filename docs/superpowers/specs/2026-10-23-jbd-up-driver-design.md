@@ -1,6 +1,6 @@
 # ECO-WORTHY / JBD-UP driver (piece 1 of 2)
 
-Date: 2026-10-23. Status: approved design, not yet implemented.
+Date: 2026-10-23. Status: implemented on branch jbd-up.
 Branch: `jbd-up`, from `rename-packkeeper`.
 
 ## Goal

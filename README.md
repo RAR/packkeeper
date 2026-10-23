@@ -109,6 +109,7 @@ Common options:
 - `--simulate` uses a fake pack. Add `--sim-state FILE` to keep its state
   between runs.
 - `--address N` picks the Modbus address, for BMS types that have one to choose (JK-PB).
+- `--unsafe` allows changing unsafe settings (BMS types that have them); each is confirmed by typing `unsafe`.
 
 Every run writes a session log next to the backup file, or in the current
 directory, or in `--log-dir`. `diff` exits 1 when the pack differs.
@@ -162,6 +163,25 @@ cannot read or write it.
 
 Never written: cell count, the charge/discharge/balance switches, the device
 address, calibration, shutdown, emergency start and the one-key presets.
+
+## ECO-WORTHY / JBD-UP (48 V rack)
+
+`--bms jbd-up` (or **BMS: ECO-WORTHY / JBD-UP**) talks to ECO-WORTHY rack packs
+with JBD "ES/UP" BMS boards over RS485 at 9600 baud, one pack at a time with the
+link cables unplugged. The address is the pack's DIP value; `packkeeper find
+--bms jbd-up` (or **Find…**) lists the addresses that answer, with each pack's
+serial number.
+
+The protection map comes from notes reverse engineered from JBD's ES-UP app,
+cross-checked against syssi/esphome-jbd-bms and the PhracturedBlue ECO-WORTHY
+notes. The ranges are this tool's proposals for 16S LiFePO4 with a 100 A BMS:
+compare them with the stock app before the first write.
+
+Unsafe settings (cells in series, shunt, short circuit, pack type, function and
+anti-theft bits, inverter protocols, CAN baud) are hidden unless you tick
+**Show unsafe settings** or pass `--unsafe`, and each write of one is confirmed
+by typing `unsafe`. Restore defaults, factory reset and calibration are not in
+this tool.
 
 ## Safe ranges and rules
 

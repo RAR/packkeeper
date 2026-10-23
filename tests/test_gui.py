@@ -584,3 +584,30 @@ def test_review_refuses_unsafe_when_box_off(tmp_path, monkeypatch):
         assert not dlg.write_btn.isEnabled()
     finally:
         w.close()
+
+
+def test_gui_runs_jbd_up_with_find(window, monkeypatch):
+    app, w = window
+    w.bms.setCurrentIndex(w.bms.findData("jbd-up"))
+    assert not w.address.isHidden() and w.address.value() == 0 and not w.find_btn.isHidden()
+    assert not w.settings.unsafe_box.isHidden()
+    w.ports.setCurrentIndex(w.ports.findData(gui.SIM_PORT))
+    monkeypatch.setattr(gui.QInputDialog, "getItem", lambda *a, **k: (a[3][1], True))  # the second pack found
+    w.find_btn.click()
+    wait(app, lambda: w.address.value() == 2)
+    w.toggle_connect()
+    wait(app, lambda: w.settings.block is not None and w._last_rt is not None)
+    assert "SIM-PACK-2" in w.identity.text()
+    tab = w.settings
+    w.tabs.setCurrentWidget(tab)
+    for i in range(tab.nav.count()):
+        if not tab.nav.isRowHidden(i):
+            tab.nav.setCurrentRow(i)
+            app.processEvents()
+    edit(w, "cell_ov_protection", "3.6")
+    wait(app, lambda: "cell_ov_protection" in tab.staged)
+    dlg = open_review(app, w, monkeypatch)
+    dlg.ack.setChecked(True)
+    dlg.write_btn.click()
+    wait(app, lambda: dlg.result is not None)
+    assert dlg.result.ok
