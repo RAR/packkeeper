@@ -218,3 +218,22 @@ def test_cli_address_option(tmp_path, capsys):
 
     assert main(["info", "--simulate", "--address", "5", "--log-dir", str(tmp_path)]) == 2
     assert "--address" in capsys.readouterr().err  # EG4-LL is fixed at address 1
+
+
+def test_wide_backup_round_trip(tmp_path, monkeypatch):
+    import json
+
+    from packkeeper import backup, drivers
+
+    monkeypatch.setitem(drivers.DRIVERS, "wide", WIDE)
+    _sim, dev = wide_device()
+    b = dev.read_block()
+    f = tmp_path / "w.json"
+    backup.save(f, b)
+    data = json.loads(f.read_text())
+    assert data["areas"][0]["stride"] == 2 and data["settings"]["cold"]["raw"] == -50
+    assert data["settings"]["amps"]["width"] == 2 and data["settings"]["amps"]["register"] == "0x202"
+    assert backup.load(f).block == b
+    data["settings"]["cold"]["raw"] = -60
+    with pytest.raises(backup.BackupError, match="edited"):
+        backup.from_dict(data)

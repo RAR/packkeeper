@@ -99,15 +99,31 @@ def test_backup_records_the_bms_type(tmp_path):
     f = tmp_path / "b.json"
     backup.save(f, REF)
     data = json.loads(f.read_text())
-    assert data["format_version"] == 2 and data["bms"] == "eg4-ll"
+    assert data["format_version"] == 3 and data["bms"] == "eg4-ll"
+    assert data["areas"] == [{"start": 0x2D, "stride": 1, "registers": list(REF.registers)}]
     assert backup.load(f).block.driver is EG4_LL
 
 
-def test_version_1_backup_loads_as_eg4_ll():
+def _old(version):
     data = backup.to_dict(REF)
-    data["format_version"] = 1
-    del data["bms"]
-    assert backup.from_dict(data).block == REF
+    data["format_version"] = version
+    del data["areas"]
+    data.update(start_register=0x2D, register_count=91, registers=list(REF.registers))
+    if version == 1:
+        del data["bms"]
+    return data
+
+
+def test_version_1_and_2_backups_still_load():
+    assert backup.from_dict(_old(1)).block == REF
+    assert backup.from_dict(_old(2)).block == REF
+
+
+def test_a_backup_area_that_does_not_match_the_driver_is_refused():
+    data = backup.to_dict(REF)
+    data["areas"][0]["start"] = 0x2E
+    with pytest.raises(backup.BackupError, match="0x2D"):
+        backup.from_dict(data)
 
 
 def test_backup_naming_an_unknown_bms_is_refused():

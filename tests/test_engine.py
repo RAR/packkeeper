@@ -381,7 +381,7 @@ def test_backup_keeps_unknown_registers(tmp_path):
     backup.save(f, REF)
     import json
     data = json.loads(f.read_text())
-    assert data["registers"][0x2F - 0x2D] == 8  # unknown 0x2F
+    assert data["areas"][0]["registers"][0x2F - 0x2D] == 8  # unknown 0x2F
     assert "0x2F" in data["unknown_registers"]
 
 
