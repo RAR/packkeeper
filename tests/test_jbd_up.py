@@ -270,9 +270,9 @@ def test_apply_plan_refuses_a_forged_unsafe_change():
 REAL_FRAMES = Path(__file__).parent / "jbd_up_real_frames.txt"
 
 
-def real_frames() -> dict[bytes, bytes]:
+def real_frames(path: Path = REAL_FRAMES) -> dict[bytes, bytes]:
     pairs = {}
-    for line in REAL_FRAMES.read_text().splitlines():
+    for line in path.read_text().splitlines():
         if line and not line.startswith("#"):
             req, rep = line.split("|")
             pairs[bytes.fromhex(req)] = bytes.fromhex(rep)
@@ -282,8 +282,8 @@ def real_frames() -> dict[bytes, bytes]:
 class ReplayTransport:
     """Answers only the requests captured from the real pack, byte for byte."""
 
-    def __init__(self):
-        self.frames = real_frames()
+    def __init__(self, path: Path = REAL_FRAMES):
+        self.frames = real_frames(path)
 
     def transact(self, request: bytes) -> bytes:
         if request not in self.frames:
@@ -342,3 +342,36 @@ def test_a_reply_too_short_for_its_area_is_refused():
     sim.sends[R.PACK.start] = R.PACK.start + 2 * R.PACK.count - 2  # one register short
     with pytest.raises(FrameError, match="0x1C00"):
         dev.read_area(R.PACK)
+
+
+def stock_blocks():
+    from packkeeper import backup
+    from packkeeper.drivers.jbd_up import DRIVER
+
+    here = Path(__file__).parent
+    pack1 = DRIVER.open_device(ReplayTransport(here / "jbd_up_pack1_frames.txt"), SessionLog(), 1).read_block()
+    pack2 = backup.load(here / "jbd_up_pack2_stock_backup.json").block
+    return {"pack 1": pack1, "pack 2": pack2}
+
+
+def test_both_real_packs_stock_settings_fit_the_ranges_and_rules():
+    for name, b in stock_blocks().items():
+        t = b.driver.table
+        assert [t[k].limit_error(b.raw(k)) for k in t if t[k].limit_error(b.raw(k))] == [], name
+        assert make_plan(b, {}).errors == [], name
+
+
+def test_real_stock_values_read_as_the_stock_app_shows_them():
+    b1, b2 = stock_blocks().values()
+    t = b1.driver.table
+    assert t["charge_ut_protection"].format(b1.raw("charge_ut_protection")) == "-20.0 °C"  # cold-rated cells
+    assert t["discharge_oc1_release_delay"].format(b2.raw("discharge_oc1_release_delay")) == "60 s"
+    assert t["charge_oc1_release_delay"].format(b2.raw("charge_oc1_release_delay")) == "600 s"
+    assert t["charge_oc1_protection"].format(b2.raw("charge_oc1_protection")) == "120.0 A"
+
+
+def test_restoring_pack_1_stock_onto_pack_2_is_allowed():
+    b1, b2 = stock_blocks().values()
+    changes = {k: b1.raw(k) for k in b1.driver.table if b1.raw(k) != b2.raw(k) and not b1.driver.table[k].unsafe}
+    p = make_plan(b2, changes)
+    assert p.ok, p.errors

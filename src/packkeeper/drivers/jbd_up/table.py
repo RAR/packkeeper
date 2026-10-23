@@ -9,6 +9,7 @@ from ...settings import SettingTable
 from .registers import STRIDE
 
 DELAY = ("ms", 1, 0, 0, (100, 60000, 100))  # unit, multiplier, offset, decimals, limits
+RELEASE = ("s", 1, 0, 0, (0, 3600, 1))  # over-current release delays: real packs ship 60 s and 600 s
 TEMP = ("°C", 0.1, -50, 1)
 SIX = ("alarm", "alarm_recovery", "alarm_delay", "protection", "protection_recovery", "protection_delay")
 
@@ -19,7 +20,7 @@ GROUPS = {
     "pack_ov": (0x1818, ("V", 0.01, 0, 2), True, (54.4, 58.4, 0.01), (52.8, 57.6, 0.01), "Pack OV"),
     "pack_uv": (0x1824, ("V", 0.01, 0, 2), False, (40.0, 49.6, 0.01), (41.6, 51.2, 0.01), "Pack UV"),
     "charge_ot": (0x1858, TEMP, True, (30, 70, 0.1), (25, 65, 0.1), "Charge OT"),
-    "charge_ut": (0x1864, TEMP, False, (-10, 10, 0.1), (-5, 15, 0.1), "Charge UT"),
+    "charge_ut": (0x1864, TEMP, False, (-20, 10, 0.1), (-15, 15, 0.1), "Charge UT"),  # spec sheet: cells work down to -20 °C
     "discharge_ot": (0x1870, TEMP, True, (40, 80, 0.1), (35, 75, 0.1), "Discharge OT"),
     "discharge_ut": (0x187C, TEMP, False, (-30, 0, 0.1), (-25, 5, 0.1), "Discharge UT"),
     "mos_ot": (0x1888, TEMP, True, (60, 110, 0.1), (50, 100, 0.1), "MOSFET OT"),
@@ -29,13 +30,14 @@ GROUPS = {
     "cell_diff": (0x18B8, ("V", 0.001, 0, 3), True, (0.05, 1.0, 0.001), (0.03, 0.99, 0.001), "Cell diff"),
     "soc_low": (0x18C4, ("%", 1, 0, 0), False, (0, 50, 1), (1, 60, 1), "SOC low"),
 }
+EQUAL_RECOVERY = {"temp_diff"}  # recovery may equal its trigger: a real pack ships with 8.0 / 8.0
 OC1 = ("alarm", "alarm_recovery", "alarm_delay", "protection", "protection_delay", "release_delay", "lockout_count")
 OC2 = ("protection", "delay", "release_delay")
 CURRENT = ("A", 0.1, 0, 1)
 OC_GROUPS = {
-    "charge_oc1": (0x1830, OC1, (1, 105, 0.1), "Charge OC 1"),
+    "charge_oc1": (0x1830, OC1, (1, 150, 0.1), "Charge OC 1"),  # ships at 120 A; stays below OC 2
     "charge_oc2": (0x183E, OC2, (1, 150, 0.1), "Charge OC 2"),
-    "discharge_oc1": (0x1844, OC1, (1, 105, 0.1), "Discharge OC 1"),
+    "discharge_oc1": (0x1844, OC1, (1, 150, 0.1), "Discharge OC 1"),
     "discharge_oc2": (0x1852, OC2, (1, 150, 0.1), "Discharge OC 2"),
 }
 
@@ -51,7 +53,7 @@ SINGLE = {
     "sleep_delay": (0x1C7A, ("min", 1, 0, 0), (1, 1440, 1), "Sleep delay"),
     "balance_mode": (0x1C7C, (None, 1, 0, 0), (0, 1, 1), "Balance mode"),
     "standby_sleep_current": (0x1C84, ("A", 0.1, 0, 1), (0.1, 5.0, 0.1), "Standby sleep current"),
-    "static_sleep_delay": (0x1C86, ("min", 1, 0, 0), (1, 1440, 1), "Static sleep delay"),
+    "static_sleep_delay": (0x1C86, ("min", 1, 0, 0), (0, 1440, 1), "Static sleep delay"),  # ships at 0
     "design_capacity": (0x2000, ("Ah", 0.01, 0, 2), (10, 600, 0.01), "Design capacity"),
     "full_capacity": (0x2002, ("Ah", 0.01, 0, 2), (10, 600, 0.01), "Full capacity"),
     "charge_request_voltage": (0x202A, ("V", 0.1, 0, 1), (48.0, 58.4, 0.1), "Charge request voltage"),
@@ -121,15 +123,16 @@ def _build():
                 limits[key] = rec if field.endswith("recovery") else main
             labels[key], groups[key] = f"{label} {field.replace('_', ' ')}", label
         a, ar, p, pr = (f"{name}_{f}" for f in ("alarm", "alarm_recovery", "protection", "protection_recovery"))
+        strict = name not in EQUAL_RECOVERY
         if high:
-            order += [(ar, a, True), (a, p, False), (pr, p, True)]
+            order += [(ar, a, strict), (a, p, False), (pr, p, strict)]
         else:
             order += [(p, a, False), (a, ar, True), (p, pr, True)]
     for name, (base, fields, main, label) in OC_GROUPS.items():
         for i, field in enumerate(fields):
             key = f"{name}_{field}"
             if field.endswith("delay"):
-                u, m, o, d, lim = DELAY
+                u, m, o, d, lim = RELEASE if field == "release_delay" else DELAY
                 spec[key], limits[key] = (base + 2 * i, m, o, u, None, d), lim
             elif field == "lockout_count":
                 spec[key], limits[key] = (base + 2 * i, 1, 0, None, None, 0), (0, 10, 1)

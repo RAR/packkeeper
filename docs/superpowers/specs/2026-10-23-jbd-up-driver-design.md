@@ -228,7 +228,7 @@ alarm delay (ms), protection, protection recovery, protection delay (ms).
 | Pack OV | 0x1818 | 0.01 V | 54.40–58.40 V | 52.80–57.60 V |
 | Pack UV | 0x1824 | 0.01 V | 40.00–49.60 V | 41.60–51.20 V |
 | Charge OT | 0x1858 | 0.1 °C, −50 °C offset | 30–70 °C | 25–65 °C |
-| Charge UT | 0x1864 | same | −10–10 °C | −5–15 °C |
+| Charge UT | 0x1864 | same | −20–10 °C | −15–15 °C |
 | Discharge OT | 0x1870 | same | 40–80 °C | 35–75 °C |
 | Discharge UT | 0x187C | same | −30–0 °C | −25–5 °C |
 | MOSFET OT | 0x1888 | same | 60–110 °C | 50–100 °C |
@@ -247,9 +247,12 @@ Current groups, scale 0.1 A:
 | Discharge OC 1 | 0x1844 | as charge OC 1 |
 | Discharge OC 2 | 0x1852 | as charge OC 2 |
 
-- Over-current ranges: stage 1 alarm, recovery and protection are 1–105 A.
-  Stage 2 protection is 1–150 A.
-- Every delay is 100–60 000 ms, in steps of 100 ms. Lockout count is 0–10.
+- Over-current ranges: stage 1 alarm, recovery and protection are 1–150 A
+  (real packs ship stage 1 protection at 120 A; the stage 1 < stage 2 rule
+  bounds it). Stage 2 protection is 1–150 A.
+- Every delay is 100–60 000 ms, in steps of 100 ms, except the over-current
+  release delays: those are seconds (the stock app shows 60 s and 600 s),
+  0–3600 s. Lockout count is 0–10.
 
 Pack area:
 
@@ -264,7 +267,7 @@ Pack area:
 | sleep delay | 0x1C7A | 1 min | 1–1440 |
 | balance mode | 0x1C7C | choice | 0 charge only, 1 static |
 | standby sleep current | 0x1C84 | 0.1 A | 0.1–5.0 A |
-| static sleep delay | 0x1C86 | 1 min | 1–1440 |
+| static sleep delay | 0x1C86 | 1 min | 0–1440 (ships at 0) |
 | fan on / off | 0x1C8A / 0x1C8C | 0.1 °C −50 | 30–70 °C / 25–65 °C |
 
 The fan registers exist only on V2 firmware. If they read 0, they are shown
@@ -292,6 +295,8 @@ Every pair below shares a scale.
   ambient OT, temperature diff, cell diff):
   - alarm recovery < alarm ≤ protection;
   - protection recovery < protection.
+  - Temperature diff only: recovery ≤ trigger, since a real pack ships with
+    8.0 / 8.0.
 - Low-limit groups (cell/pack UV, charge/discharge UT, ambient UT, SOC low):
   - protection ≤ alarm < alarm recovery;
   - protection < protection recovery.

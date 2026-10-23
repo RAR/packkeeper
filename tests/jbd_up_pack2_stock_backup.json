@@ -1,0 +1,1262 @@
+{
+  "format": "eg4tool-backup",
+  "format_version": 3,
+  "bms": "jbd-up",
+  "tool_version": "0.1.0",
+  "created": "2026-10-23T17:13:35-04:00",
+  "port": "COM3",
+  "pack": {
+    "model": "UP16S019.16S100A",
+    "firmware": "app 13.5 (hw 3, protocol 2.6)",
+    "serial": "JBD48100000",
+    "serial_note": null,
+    "bms_clock": "2026-10-23 17:12:13"
+  },
+  "areas": [
+    {
+      "start": 6144,
+      "stride": 2,
+      "registers": [
+        3600,
+        3400,
+        3000,
+        3600,
+        3400,
+        3000,
+        2700,
+        2900,
+        3000,
+        2700,
+        2900,
+        3000,
+        5760,
+        5440,
+        3000,
+        5840,
+        5440,
+        3000,
+        4200,
+        4800,
+        1000,
+        4000,
+        4800,
+        3000,
+        1050,
+        1000,
+        2000,
+        1200,
+        2000,
+        600,
+        10,
+        1300,
+        500,
+        600,
+        1050,
+        1000,
+        2000,
+        1200,
+        2000,
+        60,
+        10,
+        1400,
+        200,
+        60,
+        1050,
+        1000,
+        3000,
+        1150,
+        1000,
+        3000,
+        550,
+        600,
+        1000,
+        500,
+        550,
+        1000,
+        1050,
+        1000,
+        1000,
+        1150,
+        1000,
+        1000,
+        350,
+        400,
+        1000,
+        300,
+        350,
+        1000,
+        1450,
+        1300,
+        1000,
+        1550,
+        1350,
+        1000,
+        1100,
+        1000,
+        3000,
+        1150,
+        1100,
+        3000,
+        350,
+        400,
+        3000,
+        300,
+        350,
+        3000,
+        80,
+        80,
+        3000,
+        80,
+        80,
+        3000,
+        600,
+        500,
+        8000,
+        800,
+        500,
+        8000,
+        10,
+        15,
+        2000,
+        3,
+        5,
+        2000
+      ]
+    },
+    {
+      "start": 7168,
+      "stride": 2,
+      "registers": [
+        0,
+        0,
+        3400,
+        10,
+        500,
+        600,
+        5680,
+        1500,
+        21840,
+        12598,
+        21296,
+        12601,
+        12336,
+        12337,
+        12852,
+        13618,
+        13616,
+        14129,
+        14128,
+        13105,
+        14641,
+        0,
+        0,
+        2025,
+        8,
+        12,
+        19010,
+        17460,
+        14385,
+        12336,
+        12336,
+        12288,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        2025,
+        3,
+        18,
+        17731,
+        20269,
+        19526,
+        20532,
+        14385,
+        12336,
+        11571,
+        21805,
+        12341,
+        13878,
+        17730,
+        0,
+        0,
+        0,
+        0,
+        0,
+        3150,
+        1440,
+        1,
+        0,
+        0,
+        0,
+        5,
+        0
+      ]
+    },
+    {
+      "start": 8192,
+      "stride": 2,
+      "registers": [
+        10000,
+        10000,
+        9215,
+        9215,
+        100,
+        84,
+        300,
+        80,
+        1,
+        1572,
+        1,
+        2000,
+        30,
+        3100,
+        20,
+        3200,
+        30,
+        3450,
+        80,
+        3550,
+        90,
+        584,
+        1000,
+        448,
+        1000,
+        16,
+        210,
+        4,
+        1236,
+        125,
+        4096,
+        4096
+      ]
+    },
+    {
+      "start": 10240,
+      "stride": 2,
+      "registers": [
+        2026,
+        10,
+        23,
+        17,
+        12,
+        13
+      ]
+    },
+    {
+      "start": 10256,
+      "stride": 2,
+      "registers": [
+        40,
+        3,
+        13,
+        5,
+        1,
+        38,
+        21840,
+        12598,
+        21296,
+        12601,
+        11825,
+        13907,
+        12592,
+        12353,
+        22605,
+        17498,
+        12597,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    }
+  ],
+  "settings": {
+    "cell_ov_alarm": {
+      "register": "0x1800",
+      "width": 1,
+      "raw": 3600,
+      "value": 3.6,
+      "unit": "V"
+    },
+    "cell_ov_alarm_recovery": {
+      "register": "0x1802",
+      "width": 1,
+      "raw": 3400,
+      "value": 3.4,
+      "unit": "V"
+    },
+    "cell_ov_alarm_delay": {
+      "register": "0x1804",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "cell_ov_protection": {
+      "register": "0x1806",
+      "width": 1,
+      "raw": 3600,
+      "value": 3.6,
+      "unit": "V"
+    },
+    "cell_ov_protection_recovery": {
+      "register": "0x1808",
+      "width": 1,
+      "raw": 3400,
+      "value": 3.4,
+      "unit": "V"
+    },
+    "cell_ov_protection_delay": {
+      "register": "0x180A",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "cell_uv_alarm": {
+      "register": "0x180C",
+      "width": 1,
+      "raw": 2700,
+      "value": 2.7,
+      "unit": "V"
+    },
+    "cell_uv_alarm_recovery": {
+      "register": "0x180E",
+      "width": 1,
+      "raw": 2900,
+      "value": 2.9,
+      "unit": "V"
+    },
+    "cell_uv_alarm_delay": {
+      "register": "0x1810",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "cell_uv_protection": {
+      "register": "0x1812",
+      "width": 1,
+      "raw": 2700,
+      "value": 2.7,
+      "unit": "V"
+    },
+    "cell_uv_protection_recovery": {
+      "register": "0x1814",
+      "width": 1,
+      "raw": 2900,
+      "value": 2.9,
+      "unit": "V"
+    },
+    "cell_uv_protection_delay": {
+      "register": "0x1816",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "pack_ov_alarm": {
+      "register": "0x1818",
+      "width": 1,
+      "raw": 5760,
+      "value": 57.6,
+      "unit": "V"
+    },
+    "pack_ov_alarm_recovery": {
+      "register": "0x181A",
+      "width": 1,
+      "raw": 5440,
+      "value": 54.4,
+      "unit": "V"
+    },
+    "pack_ov_alarm_delay": {
+      "register": "0x181C",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "pack_ov_protection": {
+      "register": "0x181E",
+      "width": 1,
+      "raw": 5840,
+      "value": 58.4,
+      "unit": "V"
+    },
+    "pack_ov_protection_recovery": {
+      "register": "0x1820",
+      "width": 1,
+      "raw": 5440,
+      "value": 54.4,
+      "unit": "V"
+    },
+    "pack_ov_protection_delay": {
+      "register": "0x1822",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "pack_uv_alarm": {
+      "register": "0x1824",
+      "width": 1,
+      "raw": 4200,
+      "value": 42.0,
+      "unit": "V"
+    },
+    "pack_uv_alarm_recovery": {
+      "register": "0x1826",
+      "width": 1,
+      "raw": 4800,
+      "value": 48.0,
+      "unit": "V"
+    },
+    "pack_uv_alarm_delay": {
+      "register": "0x1828",
+      "width": 1,
+      "raw": 1000,
+      "value": 1000.0,
+      "unit": "ms"
+    },
+    "pack_uv_protection": {
+      "register": "0x182A",
+      "width": 1,
+      "raw": 4000,
+      "value": 40.0,
+      "unit": "V"
+    },
+    "pack_uv_protection_recovery": {
+      "register": "0x182C",
+      "width": 1,
+      "raw": 4800,
+      "value": 48.0,
+      "unit": "V"
+    },
+    "pack_uv_protection_delay": {
+      "register": "0x182E",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "charge_ot_alarm": {
+      "register": "0x1858",
+      "width": 1,
+      "raw": 1050,
+      "value": 55.0,
+      "unit": "°C"
+    },
+    "charge_ot_alarm_recovery": {
+      "register": "0x185A",
+      "width": 1,
+      "raw": 1000,
+      "value": 50.0,
+      "unit": "°C"
+    },
+    "charge_ot_alarm_delay": {
+      "register": "0x185C",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "charge_ot_protection": {
+      "register": "0x185E",
+      "width": 1,
+      "raw": 1150,
+      "value": 65.0,
+      "unit": "°C"
+    },
+    "charge_ot_protection_recovery": {
+      "register": "0x1860",
+      "width": 1,
+      "raw": 1000,
+      "value": 50.0,
+      "unit": "°C"
+    },
+    "charge_ot_protection_delay": {
+      "register": "0x1862",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "charge_ut_alarm": {
+      "register": "0x1864",
+      "width": 1,
+      "raw": 550,
+      "value": 5.0,
+      "unit": "°C"
+    },
+    "charge_ut_alarm_recovery": {
+      "register": "0x1866",
+      "width": 1,
+      "raw": 600,
+      "value": 10.0,
+      "unit": "°C"
+    },
+    "charge_ut_alarm_delay": {
+      "register": "0x1868",
+      "width": 1,
+      "raw": 1000,
+      "value": 1000.0,
+      "unit": "ms"
+    },
+    "charge_ut_protection": {
+      "register": "0x186A",
+      "width": 1,
+      "raw": 500,
+      "value": 0.0,
+      "unit": "°C"
+    },
+    "charge_ut_protection_recovery": {
+      "register": "0x186C",
+      "width": 1,
+      "raw": 550,
+      "value": 5.0,
+      "unit": "°C"
+    },
+    "charge_ut_protection_delay": {
+      "register": "0x186E",
+      "width": 1,
+      "raw": 1000,
+      "value": 1000.0,
+      "unit": "ms"
+    },
+    "discharge_ot_alarm": {
+      "register": "0x1870",
+      "width": 1,
+      "raw": 1050,
+      "value": 55.0,
+      "unit": "°C"
+    },
+    "discharge_ot_alarm_recovery": {
+      "register": "0x1872",
+      "width": 1,
+      "raw": 1000,
+      "value": 50.0,
+      "unit": "°C"
+    },
+    "discharge_ot_alarm_delay": {
+      "register": "0x1874",
+      "width": 1,
+      "raw": 1000,
+      "value": 1000.0,
+      "unit": "ms"
+    },
+    "discharge_ot_protection": {
+      "register": "0x1876",
+      "width": 1,
+      "raw": 1150,
+      "value": 65.0,
+      "unit": "°C"
+    },
+    "discharge_ot_protection_recovery": {
+      "register": "0x1878",
+      "width": 1,
+      "raw": 1000,
+      "value": 50.0,
+      "unit": "°C"
+    },
+    "discharge_ot_protection_delay": {
+      "register": "0x187A",
+      "width": 1,
+      "raw": 1000,
+      "value": 1000.0,
+      "unit": "ms"
+    },
+    "discharge_ut_alarm": {
+      "register": "0x187C",
+      "width": 1,
+      "raw": 350,
+      "value": -15.0,
+      "unit": "°C"
+    },
+    "discharge_ut_alarm_recovery": {
+      "register": "0x187E",
+      "width": 1,
+      "raw": 400,
+      "value": -10.0,
+      "unit": "°C"
+    },
+    "discharge_ut_alarm_delay": {
+      "register": "0x1880",
+      "width": 1,
+      "raw": 1000,
+      "value": 1000.0,
+      "unit": "ms"
+    },
+    "discharge_ut_protection": {
+      "register": "0x1882",
+      "width": 1,
+      "raw": 300,
+      "value": -20.0,
+      "unit": "°C"
+    },
+    "discharge_ut_protection_recovery": {
+      "register": "0x1884",
+      "width": 1,
+      "raw": 350,
+      "value": -15.0,
+      "unit": "°C"
+    },
+    "discharge_ut_protection_delay": {
+      "register": "0x1886",
+      "width": 1,
+      "raw": 1000,
+      "value": 1000.0,
+      "unit": "ms"
+    },
+    "mos_ot_alarm": {
+      "register": "0x1888",
+      "width": 1,
+      "raw": 1450,
+      "value": 95.0,
+      "unit": "°C"
+    },
+    "mos_ot_alarm_recovery": {
+      "register": "0x188A",
+      "width": 1,
+      "raw": 1300,
+      "value": 80.0,
+      "unit": "°C"
+    },
+    "mos_ot_alarm_delay": {
+      "register": "0x188C",
+      "width": 1,
+      "raw": 1000,
+      "value": 1000.0,
+      "unit": "ms"
+    },
+    "mos_ot_protection": {
+      "register": "0x188E",
+      "width": 1,
+      "raw": 1550,
+      "value": 105.0,
+      "unit": "°C"
+    },
+    "mos_ot_protection_recovery": {
+      "register": "0x1890",
+      "width": 1,
+      "raw": 1350,
+      "value": 85.0,
+      "unit": "°C"
+    },
+    "mos_ot_protection_delay": {
+      "register": "0x1892",
+      "width": 1,
+      "raw": 1000,
+      "value": 1000.0,
+      "unit": "ms"
+    },
+    "ambient_ot_alarm": {
+      "register": "0x1894",
+      "width": 1,
+      "raw": 1100,
+      "value": 60.0,
+      "unit": "°C"
+    },
+    "ambient_ot_alarm_recovery": {
+      "register": "0x1896",
+      "width": 1,
+      "raw": 1000,
+      "value": 50.0,
+      "unit": "°C"
+    },
+    "ambient_ot_alarm_delay": {
+      "register": "0x1898",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "ambient_ot_protection": {
+      "register": "0x189A",
+      "width": 1,
+      "raw": 1150,
+      "value": 65.0,
+      "unit": "°C"
+    },
+    "ambient_ot_protection_recovery": {
+      "register": "0x189C",
+      "width": 1,
+      "raw": 1100,
+      "value": 60.0,
+      "unit": "°C"
+    },
+    "ambient_ot_protection_delay": {
+      "register": "0x189E",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "ambient_ut_alarm": {
+      "register": "0x18A0",
+      "width": 1,
+      "raw": 350,
+      "value": -15.0,
+      "unit": "°C"
+    },
+    "ambient_ut_alarm_recovery": {
+      "register": "0x18A2",
+      "width": 1,
+      "raw": 400,
+      "value": -10.0,
+      "unit": "°C"
+    },
+    "ambient_ut_alarm_delay": {
+      "register": "0x18A4",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "ambient_ut_protection": {
+      "register": "0x18A6",
+      "width": 1,
+      "raw": 300,
+      "value": -20.0,
+      "unit": "°C"
+    },
+    "ambient_ut_protection_recovery": {
+      "register": "0x18A8",
+      "width": 1,
+      "raw": 350,
+      "value": -15.0,
+      "unit": "°C"
+    },
+    "ambient_ut_protection_delay": {
+      "register": "0x18AA",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "temp_diff_alarm": {
+      "register": "0x18AC",
+      "width": 1,
+      "raw": 80,
+      "value": 8.0,
+      "unit": "Δ°C"
+    },
+    "temp_diff_alarm_recovery": {
+      "register": "0x18AE",
+      "width": 1,
+      "raw": 80,
+      "value": 8.0,
+      "unit": "Δ°C"
+    },
+    "temp_diff_alarm_delay": {
+      "register": "0x18B0",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "temp_diff_protection": {
+      "register": "0x18B2",
+      "width": 1,
+      "raw": 80,
+      "value": 8.0,
+      "unit": "Δ°C"
+    },
+    "temp_diff_protection_recovery": {
+      "register": "0x18B4",
+      "width": 1,
+      "raw": 80,
+      "value": 8.0,
+      "unit": "Δ°C"
+    },
+    "temp_diff_protection_delay": {
+      "register": "0x18B6",
+      "width": 1,
+      "raw": 3000,
+      "value": 3000.0,
+      "unit": "ms"
+    },
+    "cell_diff_alarm": {
+      "register": "0x18B8",
+      "width": 1,
+      "raw": 600,
+      "value": 0.6,
+      "unit": "V"
+    },
+    "cell_diff_alarm_recovery": {
+      "register": "0x18BA",
+      "width": 1,
+      "raw": 500,
+      "value": 0.5,
+      "unit": "V"
+    },
+    "cell_diff_alarm_delay": {
+      "register": "0x18BC",
+      "width": 1,
+      "raw": 8000,
+      "value": 8000.0,
+      "unit": "ms"
+    },
+    "cell_diff_protection": {
+      "register": "0x18BE",
+      "width": 1,
+      "raw": 800,
+      "value": 0.8,
+      "unit": "V"
+    },
+    "cell_diff_protection_recovery": {
+      "register": "0x18C0",
+      "width": 1,
+      "raw": 500,
+      "value": 0.5,
+      "unit": "V"
+    },
+    "cell_diff_protection_delay": {
+      "register": "0x18C2",
+      "width": 1,
+      "raw": 8000,
+      "value": 8000.0,
+      "unit": "ms"
+    },
+    "soc_low_alarm": {
+      "register": "0x18C4",
+      "width": 1,
+      "raw": 10,
+      "value": 10.0,
+      "unit": "%"
+    },
+    "soc_low_alarm_recovery": {
+      "register": "0x18C6",
+      "width": 1,
+      "raw": 15,
+      "value": 15.0,
+      "unit": "%"
+    },
+    "soc_low_alarm_delay": {
+      "register": "0x18C8",
+      "width": 1,
+      "raw": 2000,
+      "value": 2000.0,
+      "unit": "ms"
+    },
+    "soc_low_protection": {
+      "register": "0x18CA",
+      "width": 1,
+      "raw": 3,
+      "value": 3.0,
+      "unit": "%"
+    },
+    "soc_low_protection_recovery": {
+      "register": "0x18CC",
+      "width": 1,
+      "raw": 5,
+      "value": 5.0,
+      "unit": "%"
+    },
+    "soc_low_protection_delay": {
+      "register": "0x18CE",
+      "width": 1,
+      "raw": 2000,
+      "value": 2000.0,
+      "unit": "ms"
+    },
+    "charge_oc1_alarm": {
+      "register": "0x1830",
+      "width": 1,
+      "raw": 1050,
+      "value": 105.0,
+      "unit": "A"
+    },
+    "charge_oc1_alarm_recovery": {
+      "register": "0x1832",
+      "width": 1,
+      "raw": 1000,
+      "value": 100.0,
+      "unit": "A"
+    },
+    "charge_oc1_alarm_delay": {
+      "register": "0x1834",
+      "width": 1,
+      "raw": 2000,
+      "value": 2000.0,
+      "unit": "ms"
+    },
+    "charge_oc1_protection": {
+      "register": "0x1836",
+      "width": 1,
+      "raw": 1200,
+      "value": 120.0,
+      "unit": "A"
+    },
+    "charge_oc1_protection_delay": {
+      "register": "0x1838",
+      "width": 1,
+      "raw": 2000,
+      "value": 2000.0,
+      "unit": "ms"
+    },
+    "charge_oc1_release_delay": {
+      "register": "0x183A",
+      "width": 1,
+      "raw": 600,
+      "value": 600.0,
+      "unit": "ms"
+    },
+    "charge_oc1_lockout_count": {
+      "register": "0x183C",
+      "width": 1,
+      "raw": 10,
+      "value": 10.0,
+      "unit": null
+    },
+    "charge_oc2_protection": {
+      "register": "0x183E",
+      "width": 1,
+      "raw": 1300,
+      "value": 130.0,
+      "unit": "A"
+    },
+    "charge_oc2_delay": {
+      "register": "0x1840",
+      "width": 1,
+      "raw": 500,
+      "value": 500.0,
+      "unit": "ms"
+    },
+    "charge_oc2_release_delay": {
+      "register": "0x1842",
+      "width": 1,
+      "raw": 600,
+      "value": 600.0,
+      "unit": "ms"
+    },
+    "discharge_oc1_alarm": {
+      "register": "0x1844",
+      "width": 1,
+      "raw": 1050,
+      "value": 105.0,
+      "unit": "A"
+    },
+    "discharge_oc1_alarm_recovery": {
+      "register": "0x1846",
+      "width": 1,
+      "raw": 1000,
+      "value": 100.0,
+      "unit": "A"
+    },
+    "discharge_oc1_alarm_delay": {
+      "register": "0x1848",
+      "width": 1,
+      "raw": 2000,
+      "value": 2000.0,
+      "unit": "ms"
+    },
+    "discharge_oc1_protection": {
+      "register": "0x184A",
+      "width": 1,
+      "raw": 1200,
+      "value": 120.0,
+      "unit": "A"
+    },
+    "discharge_oc1_protection_delay": {
+      "register": "0x184C",
+      "width": 1,
+      "raw": 2000,
+      "value": 2000.0,
+      "unit": "ms"
+    },
+    "discharge_oc1_release_delay": {
+      "register": "0x184E",
+      "width": 1,
+      "raw": 60,
+      "value": 60.0,
+      "unit": "ms"
+    },
+    "discharge_oc1_lockout_count": {
+      "register": "0x1850",
+      "width": 1,
+      "raw": 10,
+      "value": 10.0,
+      "unit": null
+    },
+    "discharge_oc2_protection": {
+      "register": "0x1852",
+      "width": 1,
+      "raw": 1400,
+      "value": 140.0,
+      "unit": "A"
+    },
+    "discharge_oc2_delay": {
+      "register": "0x1854",
+      "width": 1,
+      "raw": 200,
+      "value": 200.0,
+      "unit": "ms"
+    },
+    "discharge_oc2_release_delay": {
+      "register": "0x1856",
+      "width": 1,
+      "raw": 60,
+      "value": 60.0,
+      "unit": "ms"
+    },
+    "balance_start_voltage": {
+      "register": "0x1C04",
+      "width": 1,
+      "raw": 3400,
+      "value": 3.4,
+      "unit": "V"
+    },
+    "balance_start_delta": {
+      "register": "0x1C06",
+      "width": 1,
+      "raw": 10,
+      "value": 0.01,
+      "unit": "V"
+    },
+    "heater_on": {
+      "register": "0x1C08",
+      "width": 1,
+      "raw": 500,
+      "value": 0.0,
+      "unit": "°C"
+    },
+    "heater_off": {
+      "register": "0x1C0A",
+      "width": 1,
+      "raw": 600,
+      "value": 10.0,
+      "unit": "°C"
+    },
+    "full_charge_voltage": {
+      "register": "0x1C0C",
+      "width": 1,
+      "raw": 5680,
+      "value": 56.8,
+      "unit": "V"
+    },
+    "full_charge_current": {
+      "register": "0x1C0E",
+      "width": 1,
+      "raw": 1500,
+      "value": 1.5,
+      "unit": "A"
+    },
+    "sleep_voltage": {
+      "register": "0x1C78",
+      "width": 1,
+      "raw": 3150,
+      "value": 3.15,
+      "unit": "V"
+    },
+    "sleep_delay": {
+      "register": "0x1C7A",
+      "width": 1,
+      "raw": 1440,
+      "value": 1440.0,
+      "unit": "min"
+    },
+    "balance_mode": {
+      "register": "0x1C7C",
+      "width": 1,
+      "raw": 1,
+      "value": 1.0,
+      "unit": null
+    },
+    "standby_sleep_current": {
+      "register": "0x1C84",
+      "width": 1,
+      "raw": 5,
+      "value": 0.5,
+      "unit": "A"
+    },
+    "static_sleep_delay": {
+      "register": "0x1C86",
+      "width": 1,
+      "raw": 0,
+      "value": 0.0,
+      "unit": "min"
+    },
+    "design_capacity": {
+      "register": "0x2000",
+      "width": 1,
+      "raw": 10000,
+      "value": 100.0,
+      "unit": "Ah"
+    },
+    "full_capacity": {
+      "register": "0x2002",
+      "width": 1,
+      "raw": 10000,
+      "value": 100.0,
+      "unit": "Ah"
+    },
+    "charge_request_voltage": {
+      "register": "0x202A",
+      "width": 1,
+      "raw": 584,
+      "value": 58.4,
+      "unit": "V"
+    },
+    "charge_request_current": {
+      "register": "0x202C",
+      "width": 1,
+      "raw": 1000,
+      "value": 100.0,
+      "unit": "A"
+    },
+    "discharge_request_voltage": {
+      "register": "0x202E",
+      "width": 1,
+      "raw": 448,
+      "value": 44.8,
+      "unit": "V"
+    },
+    "discharge_request_current": {
+      "register": "0x2030",
+      "width": 1,
+      "raw": 1000,
+      "value": 100.0,
+      "unit": "A"
+    },
+    "cells_in_series": {
+      "register": "0x2032",
+      "width": 1,
+      "raw": 16,
+      "value": 16.0,
+      "unit": null
+    },
+    "shunt_resistance": {
+      "register": "0x2034",
+      "width": 1,
+      "raw": 210,
+      "value": 0.21,
+      "unit": "mΩ"
+    },
+    "short_circuit_current": {
+      "register": "0x2038",
+      "width": 1,
+      "raw": 1236,
+      "value": 1236.0,
+      "unit": null
+    },
+    "short_circuit_delay_step": {
+      "register": "0x203A",
+      "width": 1,
+      "raw": 125,
+      "value": 125.0,
+      "unit": null
+    },
+    "pack_type": {
+      "register": "0x1C00",
+      "width": 1,
+      "raw": 0,
+      "value": 0.0,
+      "unit": null
+    },
+    "cell_maker": {
+      "register": "0x1C02",
+      "width": 1,
+      "raw": 0,
+      "value": 0.0,
+      "unit": null
+    },
+    "soc_config_bits": {
+      "register": "0x203C",
+      "width": 1,
+      "raw": 4096,
+      "value": 4096.0,
+      "unit": null
+    },
+    "function_bits": {
+      "register": "0x203E",
+      "width": 1,
+      "raw": 4096,
+      "value": 4096.0,
+      "unit": null
+    },
+    "can_protocol": {
+      "register": "0x1C76",
+      "width": 1,
+      "raw": 0,
+      "value": 0.0,
+      "unit": null
+    },
+    "rs485_protocol": {
+      "register": "0x1C7E",
+      "width": 1,
+      "raw": 0,
+      "value": 0.0,
+      "unit": null
+    },
+    "can_baud": {
+      "register": "0x1C80",
+      "width": 1,
+      "raw": 0,
+      "value": 0.0,
+      "unit": null
+    },
+    "soc_table_voltage_1": {
+      "register": "0x201A",
+      "width": 1,
+      "raw": 3100,
+      "value": 3.1,
+      "unit": "V"
+    },
+    "soc_table_percent_1": {
+      "register": "0x201C",
+      "width": 1,
+      "raw": 20,
+      "value": 20.0,
+      "unit": "%"
+    },
+    "soc_table_voltage_2": {
+      "register": "0x201E",
+      "width": 1,
+      "raw": 3200,
+      "value": 3.2,
+      "unit": "V"
+    },
+    "soc_table_percent_2": {
+      "register": "0x2020",
+      "width": 1,
+      "raw": 30,
+      "value": 30.0,
+      "unit": "%"
+    },
+    "soc_table_voltage_3": {
+      "register": "0x2022",
+      "width": 1,
+      "raw": 3450,
+      "value": 3.45,
+      "unit": "V"
+    },
+    "soc_table_percent_3": {
+      "register": "0x2024",
+      "width": 1,
+      "raw": 80,
+      "value": 80.0,
+      "unit": "%"
+    },
+    "soc_table_voltage_4": {
+      "register": "0x2026",
+      "width": 1,
+      "raw": 3550,
+      "value": 3.55,
+      "unit": "V"
+    },
+    "soc_table_percent_4": {
+      "register": "0x2028",
+      "width": 1,
+      "raw": 90,
+      "value": 90.0,
+      "unit": "%"
+    }
+  },
+  "unknown_registers": {}
+}
