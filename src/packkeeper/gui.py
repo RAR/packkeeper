@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QHeaderView,
     QLabel,
+    QLineEdit,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
@@ -310,6 +311,17 @@ class ReviewDialog(QDialog):
 
         self.ack = QCheckBox(f"I have checked these {len(plan.changes)} change(s) and want to write them to this pack")
         lay.addWidget(self.ack)
+        self.unsafe_confirm: QLineEdit | None = None
+        if plan.unsafe:
+            lines = "".join(f"<p><b>{c.describe(f)}</b><br>{c.setting.unsafe}</p>" for c in plan.unsafe)
+            u = QLabel(f"<p><b>Unsafe settings in this write</b></p>{lines}")
+            u.setWordWrap(True)
+            u.setTextFormat(Qt.TextFormat.RichText)
+            u.setStyleSheet(f"color: {BAD.name()};")
+            lay.addWidget(u)
+            self.unsafe_confirm = QLineEdit()
+            self.unsafe_confirm.setPlaceholderText("type unsafe to confirm")
+            lay.addWidget(self.unsafe_confirm)
 
         buttons = QDialogButtonBox()
         self.dry_btn = buttons.addButton("Dry run: show frames", QDialogButtonBox.ButtonRole.ActionRole)
@@ -318,7 +330,9 @@ class ReviewDialog(QDialog):
         lay.addWidget(buttons)
 
         self.write_btn.setEnabled(False)
-        self.ack.toggled.connect(lambda on: self.write_btn.setEnabled(on and plan.ok and not plan.empty))
+        self.ack.toggled.connect(self._update_write)
+        if self.unsafe_confirm is not None:
+            self.unsafe_confirm.textChanged.connect(self._update_write)
         self.ack.setEnabled(plan.ok and not plan.empty)
         self.dry_btn.setEnabled(plan.ok and not plan.empty)
         self.dry_btn.clicked.connect(self.dry_run)
@@ -331,6 +345,10 @@ class ReviewDialog(QDialog):
             )
         elif plan.empty:
             self.outcome.setText("The pack already has these values. Nothing to write.")
+
+    def _update_write(self, *_):
+        typed = self.unsafe_confirm is None or self.unsafe_confirm.text().strip().lower() == "unsafe"
+        self.write_btn.setEnabled(self.ack.isChecked() and typed and self.plan.ok and not self.plan.empty)
 
     def dry_run(self):
         self.frames.setVisible(True)
@@ -346,6 +364,8 @@ class ReviewDialog(QDialog):
         self.writing = True
         self.write_btn.setEnabled(False)
         self.ack.setEnabled(False)
+        if self.unsafe_confirm is not None:
+            self.unsafe_confirm.setEnabled(False)
         self.dry_btn.setEnabled(False)
         self.close_btn.setEnabled(False)
         self.outcome.setText("Writing… each write is confirmed by reading the block back.")
@@ -811,12 +831,14 @@ class MainWindow(QMainWindow):
         from_source = src is not None and all(src.block.raw(k) == v for k, v in targets.items())
         name = src.name if from_source else "values entered here"
         fahrenheit = self.fahrenheit
+        allow_unsafe = self.settings.unsafe_on
         pack = self.pack
         self.status("Reading the pack before planning the writes…")
 
         def job():
             block = pack.read_block()
-            plan = make_plan(block, targets, fahrenheit=fahrenheit, source=src.block if from_source else None)
+            plan = make_plan(block, targets, fahrenheit=fahrenheit, source=src.block if from_source else None,
+                            allow_unsafe=allow_unsafe)
             if from_source:
                 plan.warnings[:0] = identity_warnings(block, src.block, "the comparison source")
             for w in plan.warnings:

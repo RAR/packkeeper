@@ -16,6 +16,7 @@ from typing import TYPE_CHECKING
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (
+    QCheckBox,
     QComboBox,
     QFileDialog,
     QFrame,
@@ -57,6 +58,11 @@ QLineEdit#value[state="staged"] {{
 QLineEdit#value[state="invalid"] {{ border: 2px solid {BAD.name()}; background: rgba(218, 54, 51, 30); }}
 QLineEdit#value[state="problem"] {{ border: 2px solid {BAD.name()}; }}
 QLineEdit#value[outside="true"] {{ color: {BAD.name()}; }}
+QComboBox#value {{ padding: 3px 6px; }}
+QComboBox#value[state="staged"] {{ border: 2px solid {ACCENT.name()}; font-weight: bold; }}
+QComboBox#value[state="invalid"] {{ border: 2px solid {BAD.name()}; }}
+QComboBox#value[state="problem"] {{ border: 2px solid {BAD.name()}; }}
+QComboBox#value[outside="true"] {{ color: {BAD.name()}; }}
 QLabel#sectionTitle {{ font-weight: bold; font-size: 14px; padding-top: 6px; }}
 QLabel#columnHead {{ color: palette(placeholder-text); font-size: 11px; }}
 QLabel#hint {{ color: palette(placeholder-text); font-size: 11px; }}
@@ -90,23 +96,70 @@ class ValueEdit(QLineEdit):
         super().keyPressEvent(e)
 
 
+class ChoiceEdit(QComboBox):
+    """A drop-down offering ValueEdit's API, for settings with named choices."""
+
+    editingFinished = Signal()
+    escaped = Signal()
+
+    def __init__(self, choices):
+        super().__init__()
+        self._names = [name for _raw, name in choices]
+        self.addItems(self._names)
+        self.activated.connect(lambda _i: self.editingFinished.emit())
+
+    def text(self) -> str:
+        return self.currentText()
+
+    def setText(self, name: str):
+        """Select `name`; a value with no name (the pack holds one) is shown as an extra item."""
+        while self.count() > len(self._names):
+            self.removeItem(self.count() - 1)
+        i = self.findText(name)
+        if i < 0:
+            self.addItem(name)
+            i = self.count() - 1
+        self.setCurrentIndex(i)
+
+    def isModified(self) -> bool:
+        return False
+
+    def selectAll(self):
+        pass
+
+    def keyPressEvent(self, e):
+        if e.key() == Qt.Key.Key_Escape:
+            self.escaped.emit()
+            return
+        super().keyPressEvent(e)
+
+
+def _shown(s, raw: int, fahrenheit: bool, unit: bool = False) -> str:
+    """The text for a field: bit settings show only the number, the names go in the note."""
+    text = s.format(raw, fahrenheit, unit=unit)
+    return text.split(" (", 1)[0] if s.bits is not None else text
+
+
 class SettingField(QWidget):
     """One editable value with a one-line note under it."""
 
     committed = Signal(str, str)  # key, text
     link = Signal(str, str)  # key, "undo" | "ref"
 
-    def __init__(self, key: str):
+    def __init__(self, key: str, setting=None):
         super().__init__()
         self.key = key
         self._shown = ""
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         lay.setSpacing(1)
-        self.edit = ValueEdit()
+        if setting is not None and setting.choices is not None:
+            self.edit = ChoiceEdit(setting.choices)
+        else:
+            self.edit = ValueEdit()
+            self.edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.edit.setObjectName("value")
         self.edit.setFixedWidth(FIELD_WIDTH)
-        self.edit.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         self.sub = QLabel()
         self.sub.setObjectName("hint")
         self.sub.setAlignment(Qt.AlignmentFlag.AlignRight)
@@ -222,7 +275,7 @@ class SettingsPage(QScrollArea):
             parts = []
             for k in keys:
                 s = self.table[k]
-                text = f"{s.format(s.raw_min, fahrenheit)} – {s.format(s.raw_max, fahrenheit)}"
+                text = f"{_shown(s, s.raw_min, fahrenheit, True)} – {_shown(s, s.raw_max, fahrenheit, True)}"
                 if text not in parts:
                     parts.append(text)
             label.setText(" · ".join(parts))
@@ -258,6 +311,7 @@ class SettingsTab(QWidget):
         self.staged: dict[str, int] = {}
         self.bad: dict[str, tuple[str, str]] = {}  # key -> (text typed, why it was refused)
         self.plan: Plan | None = None
+        self._warned_unsafe = False
         self.setStyleSheet(STYLE)
 
         lay = QVBoxLayout(self)
@@ -273,7 +327,7 @@ class SettingsTab(QWidget):
         self.stack = QStackedWidget()
         self.fields: dict[str, SettingField] = {}
         for key in driver.ordered_keys:
-            f = SettingField(key)
+            f = SettingField(key, self.table[key])
             f.committed.connect(self.on_commit)
             f.link.connect(self.on_field_link)
             self.fields[key] = f
@@ -293,6 +347,8 @@ class SettingsTab(QWidget):
             it.setSizeHint(QSize(180, 36))
             self.nav_widgets.append((name, h))
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
+        for i, page in enumerate(driver.pages):
+            self.nav.setRowHidden(i, page.unsafe)
         self.nav.setCurrentRow(0)
         body.addWidget(self.nav)
         body.addWidget(self.stack, 1)
@@ -314,6 +370,11 @@ class SettingsTab(QWidget):
         for b in (self.read_btn, self.backup_btn, self.copy_btn):
             bar.addWidget(b)
         bar.addStretch(1)
+        self.unsafe_box = QCheckBox("Show unsafe settings")
+        self.unsafe_box.setToolTip("Settings that can make the pack mis-measure or lock itself out. Hidden unless ticked.")
+        self.unsafe_box.setVisible(bool(self.table.unsafe_keys))
+        self.unsafe_box.toggled.connect(self.on_unsafe_toggled)
+        bar.addWidget(self.unsafe_box)
         bar.addWidget(QLabel("Compare with:"))
         self.compare = QComboBox()
         self.compare.setMinimumWidth(240)
@@ -381,6 +442,28 @@ class SettingsTab(QWidget):
     @property
     def fahrenheit(self) -> bool:
         return self.main.fahrenheit
+
+    @property
+    def unsafe_on(self) -> bool:
+        return self.unsafe_box.isChecked()
+
+    def on_unsafe_toggled(self, on: bool):
+        if on and not self._warned_unsafe:
+            self._warned_unsafe = True
+            QMessageBox.warning(
+                self, "Unsafe settings",
+                "These settings can make the pack mis-measure, lock itself out or stop talking to the inverter. "
+                "Change one only if you know why, and keep a backup.",
+            )
+        for i, page in enumerate(self.driver.pages):
+            self.nav.setRowHidden(i, page.unsafe and not on)
+        if self.nav.isRowHidden(self.nav.currentRow()):
+            self.nav.setCurrentRow(0)
+        if not on:
+            for k in self.table.unsafe_keys:
+                self.staged.pop(k, None)
+                self.bad.pop(k, None)
+        self.refresh()
 
     def current_source(self) -> Source | None:
         i = self.compare.currentIndex()
@@ -483,7 +566,7 @@ class SettingsTab(QWidget):
         if src is None or self.block is None:
             return
         self.bad.clear()
-        self.staged = {k: v for k, v in targets_from_block(src.block).items() if v != self.block.raw(k)}
+        self.staged = {k: v for k, v in targets_from_block(src.block, allow_unsafe=self.unsafe_on).items() if v != self.block.raw(k)}
         self.refresh()
         if not self.staged:
             self.main.status("The pack already matches the comparison.")
@@ -499,7 +582,7 @@ class SettingsTab(QWidget):
         f = self.fahrenheit
         src = self.current_source()
         block = self.block
-        self.plan = make_plan(block, self.staged, fahrenheit=f) if block is not None else None
+        self.plan = make_plan(block, self.staged, fahrenheit=f, allow_unsafe=self.unsafe_on) if block is not None else None
         problems = self.plan.problem_keys if self.plan else set()
 
         for key, field in self.fields.items():
@@ -527,15 +610,17 @@ class SettingsTab(QWidget):
                 continue
             if key in self.staged:
                 state = "invalid" if key in problems else "staged"
-                sub = f"was {s.format(pack_raw, f, unit=False)} · <a href='undo'>undo</a>"
-                field.show_value(s.format(self.staged[key], f, unit=False), state, sub, "\n".join(tip), False, True)
+                sub = f"was {_shown(s, pack_raw, f)} · <a href='undo'>undo</a>"
+                if s.bits is not None:
+                    tip.append(f"New: {s.format(self.staged[key], f)}")
+                field.show_value(_shown(s, self.staged[key], f), state, sub, "\n".join(tip), False, True)
                 continue
             sub = ""
             if ref_raw is not None and ref_raw != pack_raw:
-                sub = (f"<a href='ref' style='color:{WARN.name()}'>ref {s.format(ref_raw, f, unit=False)}</a>")
+                sub = (f"<a href='ref' style='color:{WARN.name()}'>ref {_shown(s, ref_raw, f)}</a>")
                 tip.append("Click the note under the field to use the comparison value.")
             state = "problem" if key in problems else ""
-            field.show_value(s.format(pack_raw, f, unit=False), state, sub, "\n".join(tip), bool(outside), True)
+            field.show_value(_shown(s, pack_raw, f), state, sub, "\n".join(tip), bool(outside), True)
 
         for page in self.pages:
             page.update_units(f)

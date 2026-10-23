@@ -464,3 +464,83 @@ def test_review_at_the_default_address_has_no_broadcast_warning(window, monkeypa
     w.clock.set_clock()
     assert asked and "broadcast" not in asked[0]
     dlg.reject()
+
+
+def toy_window(tmp_path, monkeypatch):
+    from packkeeper import drivers, qtcommon
+    from unsafe_toy_driver import UNSAFE_TOY
+    monkeypatch.setitem(drivers.DRIVERS, "unsafe-toy", UNSAFE_TOY)
+    monkeypatch.setattr(qtcommon, "data_dir", lambda: tmp_path)
+    app = QApplication.instance() or QApplication([])
+    w = gui.MainWindow()
+    w.show()
+    w.bms.setCurrentIndex(w.bms.findData("unsafe-toy"))
+    w.ports.setCurrentIndex(w.ports.findData(gui.SIM_PORT))
+    w.toggle_connect()
+    wait(app, lambda: w.settings.block is not None and w._last_rt is not None)
+    return app, w
+
+
+def test_unsafe_page_hidden_until_switched_on(tmp_path, monkeypatch):
+    app, w = toy_window(tmp_path, monkeypatch)
+    try:
+        s = w.settings
+        assert not s.unsafe_box.isHidden() and not s.unsafe_box.isChecked()
+        unsafe_row = [i for i, p in enumerate(s.driver.pages) if p.unsafe][0]
+        assert s.nav.isRowHidden(unsafe_row)
+        warned = []
+        monkeypatch.setattr(gui.settings_view.QMessageBox, "warning", lambda *a, **k: warned.append(a[2]))
+        s.unsafe_box.setChecked(True)
+        assert warned and not s.nav.isRowHidden(unsafe_row)
+        edit(w, "cells", "15")
+        wait(app, lambda: "cells" in s.staged)
+        s.unsafe_box.setChecked(False)
+        assert "cells" not in s.staged and s.nav.isRowHidden(unsafe_row)
+    finally:
+        w.close()
+
+
+def test_unsafe_review_needs_typed_unsafe(tmp_path, monkeypatch):
+    app, w = toy_window(tmp_path, monkeypatch)
+    try:
+        monkeypatch.setattr(gui.settings_view.QMessageBox, "warning", lambda *a, **k: None)
+        w.settings.unsafe_box.setChecked(True)
+        edit(w, "cells", "15")
+        wait(app, lambda: "cells" in w.settings.staged)
+        dlg = open_review(app, w, monkeypatch)
+        assert [c.key for c in dlg.plan.unsafe] == ["cells"]
+        dlg.ack.setChecked(True)
+        assert not dlg.write_btn.isEnabled()
+        dlg.unsafe_confirm.setText("unsafe")
+        assert dlg.write_btn.isEnabled()
+        dlg.write_btn.click()
+        wait(app, lambda: dlg.result is not None)
+        assert dlg.result.ok
+    finally:
+        w.close()
+
+
+def test_choice_setting_is_a_dropdown(tmp_path, monkeypatch):
+    app, w = toy_window(tmp_path, monkeypatch)
+    try:
+        field = w.settings.fields["mode"]
+        assert isinstance(field.edit, gui.settings_view.ChoiceEdit)
+        assert [field.edit.itemText(i) for i in range(field.edit.count())] == ["charge only", "static"]
+        assert field.edit.text() == "charge only"
+        field.edit.setText("static")
+        field.edit.editingFinished.emit()
+        wait(app, lambda: w.settings.staged.get("mode") == 1)
+    finally:
+        w.close()
+
+
+def test_bits_setting_commits_hex(tmp_path, monkeypatch):
+    app, w = toy_window(tmp_path, monkeypatch)
+    try:
+        monkeypatch.setattr(gui.settings_view.QMessageBox, "warning", lambda *a, **k: None)
+        w.settings.unsafe_box.setChecked(True)
+        assert w.settings.fields["flags"].edit.text() == "0x0001"
+        edit(w, "flags", "0x0011")
+        wait(app, lambda: w.settings.staged.get("flags") == 0x11)
+    finally:
+        w.close()
