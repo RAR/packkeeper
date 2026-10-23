@@ -1,18 +1,24 @@
 from collections import Counter
 
+import pytest
+
+from packkeeper import drivers
 from packkeeper.drivers.eg4_ll import DRIVER
 
 ORDERED_KEYS, PAGES, SETTINGS = DRIVER.ordered_keys, DRIVER.pages, DRIVER.table
+EVERY_DRIVER = pytest.mark.parametrize("d", list(drivers.DRIVERS.values()), ids=lambda d: d.name)
 
 
-def test_every_setting_shown_exactly_once():
-    counts = Counter(ORDERED_KEYS)
-    assert set(counts) == set(SETTINGS)
+@EVERY_DRIVER
+def test_every_setting_shown_exactly_once(d):
+    counts = Counter(d.ordered_keys)
+    assert set(counts) == set(d.table)
     assert [k for k, n in counts.items() if n > 1] == []
 
 
-def test_rows_fit_their_columns():
-    for page in PAGES:
+@EVERY_DRIVER
+def test_rows_fit_their_columns(d):
+    for page in d.pages:
         for section in page.sections:
             for label, keys in section.rows:
                 assert len(keys) == len(section.columns), (page.title, section.title, label)
