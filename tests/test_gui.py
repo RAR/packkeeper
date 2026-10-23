@@ -398,3 +398,27 @@ def test_address_box_only_for_drivers_with_choices(tmp_path, monkeypatch):
         assert warned and "numbering not confirmed" in warned[0]
     finally:
         w.close()
+
+
+def test_gui_runs_jk_pb(window, monkeypatch):
+    app, w = window
+    w.bms.setCurrentIndex(w.bms.findData("jk-pb"))
+    assert not w.address.isHidden() and w.address.value() == 1
+    assert w.tabs.isTabVisible(w.tabs.indexOf(w.clock))
+    w.ports.setCurrentIndex(w.ports.findData(gui.SIM_PORT))
+    w.toggle_connect()
+    wait(app, lambda: w.settings.block is not None and w._last_rt is not None)
+    assert w.identity.text().startswith("<b>JK_PB2A16S20P</b>") and "writes off" not in w.identity.text()
+    assert "Cells:</b> 16" in w.live.details.text()
+    w.tabs.setCurrentWidget(w.settings)
+    for i in range(w.settings.nav.count()):
+        w.settings.nav.setCurrentRow(i)
+        app.processEvents()
+    edit(w, "cell_ov_protection", "3.6")
+    wait(app, lambda: "cell_ov_protection" in w.settings.staged)
+    dlg = open_review(app, w, monkeypatch)
+    assert [c.key for c in dlg.plan.changes] == ["cell_ov_protection"]
+    dlg.ack.setChecked(True)
+    dlg.write_btn.click()
+    wait(app, lambda: dlg.result is not None)
+    assert dlg.result.ok and dlg.result.results[0].status == CONFIRMED

@@ -108,6 +108,7 @@ Common options:
 - `--dry-run` / `-n` on any write command prints the frames it would send.
 - `--simulate` uses a fake pack. Add `--sim-state FILE` to keep its state
   between runs.
+- `--address N` picks the Modbus address, for BMS types that have one to choose (JK-PB).
 
 Every run writes a session log next to the backup file, or in the current
 directory, or in `--log-dir`. `diff` exits 1 when the pack differs.
@@ -142,6 +143,23 @@ refuse registers where `driver.is_writable` is false. It also overrides
 A new driver should only ever be used for `info`, `backup`, `diff` and
 `live` until its register map has been checked against a real unit.
 
+## JK-PB (PB2A16S20P)
+
+`--bms jk-pb` (or **BMS: JK-PB** in the app) talks to a JK PB-series inverter
+BMS over RS485 with a USB-RS485 adapter, one pack at a time with the link
+cables unplugged. Pick the pack's DIP-switch address with `--address N`
+(or the **Address** box); a pack that does not answer at 1 may answer at 0.
+
+The register map is JK's RS485 Modbus V1.1 document. The settings ranges are
+this tool's proposal for 16S LiFePO4, not JK's limits: compare them with JK's
+app before the first write. On every connect the tool reads cell
+over-voltage at two candidate addresses to confirm how the pack numbers its
+registers; if that does not come out cleanly, writes and the clock are turned
+off for that session and the reason is shown.
+
+Never written: cell count, the charge/discharge/balance switches, the device
+address, calibration, shutdown, emergency start and the one-key presets.
+
 ## Safe ranges and rules
 
 The settings, their encodings, LIMITS and ORDER rules are
@@ -156,7 +174,7 @@ in [`src/packkeeper/drivers/eg4_ll/table.py`](src/packkeeper/drivers/eg4_ll/tabl
   ships with (cell OV 3.80 V, pack OV 60.80 V, cell UV 2.30 V, currents
   300 A, and so on).
 - The balance delta minimum is raised to **0.020 V** in
-  [`settings.py`](src/packkeeper/settings.py) (`LIMIT_OVERRIDES`). The pack
+  [`table.py`](src/packkeeper/drivers/eg4_ll/table.py) (`LIMIT_OVERRIDES`). The pack
   drops anything lower.
 - **Short circuit (0x52) and discharge OC 2 (0x54) are linked.** The
   component and REGISTER_MAP.md disagree on which register is which, and
