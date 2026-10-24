@@ -8,3 +8,4 @@ dist/
 packkeeper-*.log
 packkeeper-*.before-*.json
 .DS_Store
+uv.lock

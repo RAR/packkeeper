@@ -282,13 +282,26 @@ The tests decode the captured reference frames, and cover CRC, framing,
 LIMITS/ORDER, the write-order planner (including refusals and a randomized
 check that every valid target gets a safe order), backups, and a fake pack.
 The fake pack applies writes and can ack a write but drop it, exercising the
-"NOT applied" path. `.github/workflows/build.yml` runs the tests and builds
-Windows, macOS (arm64 and x86_64) and Linux binaries. A `v*` tag drafts a
-release.
+"NOT applied" path.
 
-This tool has not been run against a real pack yet. Start there with `info`,
-`backup`, `diff` and `live`. Any write test needs the owner present and
-agreeing to that specific write.
+`.github/workflows/build.yml` runs the tests on Linux for every push and
+pull request. Builds cost more CI minutes (macOS counts 10x and Windows 2x
+on a private repo), so they run only when asked for or on a `v*` tag, which
+builds all four and drafts a release:
+
+```
+gh workflow run build --ref main                     # Windows build only
+gh workflow run build --ref main -f platforms=all    # Windows, macOS arm64 and x86_64, Linux
+```
+
+To build on your own machine instead (no CI minutes): `python
+packaging/build.py` builds for the platform it runs on. On Windows,
+`packaging\build-windows.bat` does it all: it installs uv if needed, runs the
+tests, builds both programs and zips them. Copy the source to the PC's disk
+first.
+
+On a real pack, start with `info`, `backup`, `diff` and `live`. Any write
+test needs the owner present and agreeing to that specific write.
 
 The protocol comes only from the public EG4-LL Modbus PDF, the open-source
 component, and reads of the owner's own packs. Nothing here comes from
