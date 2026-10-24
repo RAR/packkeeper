@@ -49,6 +49,7 @@ class Device(Protocol):
     def read_live(self, retries: int = READ_RETRIES) -> Live: ...
     def write_setting(self, setting: "Setting", raw: int) -> bool: ...
     def write_clock(self, t: datetime) -> bool: ...
+    def send_control(self, step) -> bool: ...
     def close(self) -> None: ...
 
 
@@ -206,6 +207,16 @@ class ModbusDevice:
             raise PackError(f"the {self.driver.label} has no clock to set")
         register, values = self.driver.clock_write(t)
         return self._write(register, values)
+
+    def send_control(self, step) -> bool:
+        """One control step's write; True if acked. Only the driver's control registers."""
+        if self.write_refusal:
+            raise PackError(f"writes are off: {self.write_refusal}")
+        if step.register not in self.driver.control_registers:
+            raise PackError(
+                f"refusing to write 0x{step.register:02X}: not a control register of the {self.driver.label}"
+            )
+        return self._write(step.register, [step.value])
 
     def _write(self, register: int, values: list[int]) -> bool:
         request = self.framing.write_request(self.address, register, values)

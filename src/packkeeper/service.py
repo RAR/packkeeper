@@ -9,15 +9,18 @@ is), so stopping is safe and guessing is not.
 
 from __future__ import annotations
 
+import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable
 
-from .block import Block, DriverMismatch, _a
+from . import controls as C
+from .block import Block, DriverMismatch, MissingRegister, _a
 from .device import Device, PackError
-from .errors import DeviceRefused
+from .errors import DeviceRefused, FrameError
 from .planner import Change, Plan
 from .settings import Setting, SettingTable
+from .transport import NoReply
 
 CONFIRMED = "confirmed"
 NOT_APPLIED = "NOT applied"
@@ -286,3 +289,66 @@ def diff_blocks(a: Block, b: Block) -> tuple[list[DiffRow], list[int]]:
     ]
     unknown = [r for r in register_diff(a, b) if r not in table.covering]
     return rows, unknown
+
+
+def run_control(
+    pack: Device,
+    control: C.Control,
+    progress: Callable[[C.StepResult], None] | None = None,
+    stop: threading.Event | None = None,
+) -> C.ControlResult:
+    """Send a control's steps one at a time, checking each, and stop at the first not confirmed.
+
+    The block is read first, which sets the write key and whether writes are
+    allowed. Once a frame may be on the wire, a failed step, a stop or Ctrl-C
+    sends the cleanup steps.
+    """
+    log = pack.log
+    pack.read_block()
+    if pack.write_refusal:
+        raise PackError(f"writes are off: {pack.write_refusal}; nothing was sent")
+    out = C.ControlResult(control)
+    log.info(f"control {control.key}: {control.label}")
+    on_wire = False
+
+    def record(r: C.StepResult) -> None:
+        out.results.append(r)
+        log.result(r.describe())
+        if progress:
+            progress(r)
+
+    try:
+        for step in control.steps:
+            if stop is not None and stop.is_set():
+                out.stopped = "stopped by the user"
+                break
+            r = _send_step(pack, step)
+            on_wire = on_wire or r.status != C.NOT_SENT
+            record(r)
+            if r.status != C.CONFIRMED:
+                out.stopped = f"{step.label}: {r.status} ({r.detail})"
+                break
+    except KeyboardInterrupt:
+        out.stopped = "interrupted"
+        on_wire = True  # a frame may have gone out when Ctrl-C came
+    if out.stopped and on_wire:
+        for step in control.cleanup:
+            record(_send_step(pack, step, cleanup=True))
+    log.result(f"control {control.key} " + ("confirmed" if out.ok else f"NOT confirmed ({out.stopped})"))
+    return out
+
+
+def _send_step(pack: Device, step: C.Step, cleanup: bool = False) -> C.StepResult:
+    try:
+        acked = pack.send_control(step)
+    except PackError as e:  # refused before sending
+        return C.StepResult(step, C.NOT_SENT, str(e), cleanup)
+    except DeviceRefused as e:
+        acked = False
+        pack.log.warn(f"the pack refused {step.label}: {e}")
+    try:
+        check = step.check(pack, acked)
+    except (NoReply, FrameError, DeviceRefused, MissingRegister) as e:
+        check = C.Check(None, f"the read-back failed: {e}")
+    status = C.CONFIRMED if check.ok else C.UNVERIFIED if check.ok is None else C.NOT_CONFIRMED
+    return C.StepResult(step, status, check.detail + ("" if acked else " (no ack)"), cleanup)

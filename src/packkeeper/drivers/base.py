@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import cached_property
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from ..block import Area, Block, Identity
 from ..framing import MODBUS
@@ -14,6 +15,9 @@ from ..layout import Page
 from ..live import Live
 from ..settings import SettingTable
 from ..transport import SerialParams
+
+if TYPE_CHECKING:
+    from ..controls import Control
 
 
 @dataclass(frozen=True)
@@ -55,6 +59,7 @@ class Driver:
     read_error_hint: str = ""  # added to the error when the device refuses a block read
     setup_hint: str = ""  # how to connect a pack, e.g. for the copy steps
     clock_note: str = ""
+    control_registers: frozenset[int] = frozenset()  # the only registers send_control writes
 
     # --- required -----------------------------------------------------------
 
@@ -97,6 +102,10 @@ class Driver:
 
     def clock_write(self, t: datetime) -> tuple[int, list[int]]:
         raise NotImplementedError(f"{self.label} has no clock")
+
+    def controls(self) -> tuple["Control", ...]:
+        """Live controls (restart, sleep, ...), as captured from the maker's own tool."""
+        return ()
 
     def probe_reads(self) -> tuple[tuple[str, Area], ...]:
         """The reads `packkeeper probe` tries one by one (reads only): each area and live read."""
