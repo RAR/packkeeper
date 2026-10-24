@@ -217,6 +217,13 @@ in [`src/packkeeper/drivers/eg4_ll/table.py`](src/packkeeper/drivers/eg4_ll/tabl
   identity (0x69-0x7F) never.
 - A backup's raw registers are the source of truth. A file whose decoded
   values were edited so they no longer match is refused.
+- A register the pack does not send (a reply shorter than the block, or a
+  refused read of an identity or clock area) is never guessed. It shows as
+  **not sent**, is saved as `null`, and is never written. Neither is a
+  setting whose rule partner was not sent, since the rule cannot be checked.
+  Restore and copy leave such settings alone and say which. A refused read
+  in a settings area still fails the whole read: that usually means wrong
+  addressing.
 
 The built-in **eg4-shipped** profile is a parameter block captured from a
 ZTR-16S200A-10KW-STD2 on BMS firmware S02T11 (2026-10-20). Restoring it, or
