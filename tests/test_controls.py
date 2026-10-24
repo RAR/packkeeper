@@ -148,3 +148,39 @@ def test_eg4_and_jk_have_no_controls():
     for name in ("eg4-ll", "jk-pb"):
         d = drivers.get(name)
         assert d.controls() == () and d.control_registers == frozenset()
+
+
+def raises(exc):
+    def check(dev, acked):
+        raise exc
+    return check
+
+
+def test_an_unexpected_error_after_a_step_still_runs_cleanup_and_logs():
+    sim, dev = toy()
+    c = control(Step("A", REG_A, 1, raises(OSError("adapter gone"))),
+                cleanup=[Step("undo A", REG_A, 0, holds(REG_A, 0))])
+    res = run_control(dev, c)
+    assert res.stopped.startswith("error:") and "adapter gone" in res.stopped
+    assert sim.writes == [(REG_A, [1]), (REG_A, [0])]
+    assert "control demo NOT confirmed" in dev.log.lines[-1]
+    assert res.cleanup_ok
+
+
+def test_ctrl_c_during_cleanup_is_reported_not_silent():
+    sim, dev = toy()
+    c = control(Step("A", REG_A, 1, holds(REG_A, 9)),
+                cleanup=[Step("undo A", REG_A, 0, raises(KeyboardInterrupt()))])
+    res = run_control(dev, c)
+    undo = res.results[-1]
+    assert undo.cleanup and undo.status == UNVERIFIED and "interrupted during cleanup" in undo.detail
+    assert not res.cleanup_ok
+    assert "NOT confirmed" in dev.log.lines[-1]
+
+
+def test_a_cleanup_that_does_not_confirm_is_flagged():
+    sim, dev = toy()
+    c = control(Step("A", REG_A, 1, holds(REG_A, 9)),
+                cleanup=[Step("undo A", REG_A, 0, holds(REG_A, 9))])
+    res = run_control(dev, c)
+    assert not res.cleanup_ok

@@ -950,8 +950,8 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event):
         self.live_timer.stop()
         self.log_timer.stop()
-        # Let a write in progress finish its read-back before the port closes.
         self.controls.stop.set()  # a running control goes back to Normal before the port closes
+        # Let a write in progress finish its read-back before the port closes.
         self.worker.shutdown()
         if self.pack is not None:
             self.pack.close()

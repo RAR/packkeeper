@@ -152,6 +152,11 @@ class ControlsTab(QWidget):
             self.lines.append(f"<b style='color:{GOOD.name()}'>Confirmed.</b>")
         else:
             self.lines.append(f"<b style='color:{BAD.name()}'>NOT confirmed:</b> {res.stopped}")
+            if not res.cleanup_ok:
+                self.lines.append(
+                    f"<b style='color:{BAD.name()}'>The cleanup was not confirmed: "
+                    "the pack may not be back to normal. Check the Live tab.</b>"
+                )
         self.steps.setText("<br>".join(self.lines))
         self.main.control_running_changed()
         self.main.read_settings()

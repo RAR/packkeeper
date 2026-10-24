@@ -82,7 +82,7 @@ def restarted(device, acked: bool) -> Check:
 
 def standby(device, acked: bool) -> Check:
     status = device.read_live(retries=1).status_text
-    return Check(acked, f"{'acked' if acked else 'no ack'}; the pack reports {status}")
+    return Check(True if acked else None, f"{'acked' if acked else 'no ack'}; the pack reports {status}")
 
 
 NORMAL_STEP = Step("Normal mode (the BMS drives the MOSFETs)", REG_MODE, NORMAL, normal_mode)

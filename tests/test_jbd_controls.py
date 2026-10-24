@@ -142,6 +142,12 @@ def test_standby_is_confirmed_by_its_ack_and_reports_the_status():
     assert sim.writes == [(0x2908, [0xA501])]
 
 
+def test_standby_without_an_ack_is_unverified():
+    sim, dev = jbd()
+    dev.read_block()
+    assert JC.standby(dev, False).ok is None
+
+
 def test_writes_off_sends_no_control():
     sim, dev = jbd(large_capacity=True)  # turns writes off on every read
     with pytest.raises(PackError, match="writes are off"):
@@ -189,6 +195,18 @@ def test_cli_runs_the_mosfet_test(tmp_path, capsys, monkeypatch):
     out = capsys.readouterr().out
     assert out.count("confirmed") >= 4 and "Control confirmed." in out
     assert len(control_tx(tmp_path)) == 4
+
+
+def test_cli_warns_when_cleanup_was_not_confirmed(tmp_path, capsys, monkeypatch):
+    import packkeeper.cli as cli
+    from packkeeper.controls import UNVERIFIED, ControlResult, StepResult
+
+    control = by_key()["mosfet-test"]
+    res = ControlResult(control, [StepResult(control.cleanup[0], UNVERIFIED, "x", cleanup=True)], "error: x")
+    monkeypatch.setattr(cli, "run_control", lambda *a, **k: res)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "test")
+    assert cli.main(["control", "--bms", "jbd-up", "--simulate", "--log-dir", str(tmp_path), "mosfet-test"]) == 1
+    assert "WARNING: the cleanup was not confirmed" in capsys.readouterr().out
 
 
 def test_cli_unknown_control_and_bms_without_controls(capsys):

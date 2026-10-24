@@ -66,6 +66,10 @@ class ControlResult:
             and all(r.status == CONFIRMED for r in self.results)
         )
 
+    @property
+    def cleanup_ok(self) -> bool:
+        return all(r.status == CONFIRMED for r in self.results if r.cleanup)
+
 
 def control_frames(device, control: Control) -> list[tuple[str, bytes]]:
     """(label, frame) for every step, then every cleanup step, as `device` would send them."""

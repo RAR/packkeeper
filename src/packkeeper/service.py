@@ -331,9 +331,23 @@ def run_control(
     except KeyboardInterrupt:
         out.stopped = "interrupted"
         on_wire = True  # a frame may have gone out when Ctrl-C came
+    except Exception as e:  # noqa: BLE001 - never stop blind: clean up and report
+        out.stopped = f"error: {e}"
+        on_wire = True
+        log.error(f"control {control.key} stopped by an unexpected error: {e!r}")
     if out.stopped and on_wire:
         for step in control.cleanup:
-            record(_send_step(pack, step, cleanup=True))
+            try:
+                record(_send_step(pack, step, cleanup=True))
+            except KeyboardInterrupt:
+                record(C.StepResult(step, C.UNVERIFIED,
+                                    "interrupted during cleanup: the pack may not be back to normal", cleanup=True))
+                break
+            except Exception as e:  # noqa: BLE001
+                log.error(f"cleanup {step.label} failed: {e!r}")
+                record(C.StepResult(step, C.UNVERIFIED,
+                                    f"cleanup failed: {e}; the pack may not be back to normal", cleanup=True))
+                break
     log.result(f"control {control.key} " + ("confirmed" if out.ok else f"NOT confirmed ({out.stopped})"))
     return out
 

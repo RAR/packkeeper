@@ -626,6 +626,11 @@ def cmd_control(args) -> int:
         print("\nControl confirmed.")
         return 0
     print(f"\nNOT confirmed: {res.stopped}\nSee the log: {pack.log.path}")
+    if not res.cleanup_ok:
+        print(
+            "WARNING: the cleanup was not confirmed, so the pack may not be back to normal. "
+            "Check it with 'packkeeper live' and run the control again or restart the pack."
+        )
     return 1
 
 
