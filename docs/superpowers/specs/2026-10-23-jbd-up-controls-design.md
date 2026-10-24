@@ -33,10 +33,32 @@ Pack 1 (protocol 3.5) reports inverter limits of 600 A where pack 2 reports
 100 A. That is six packs × 100 A, so pack 1 is probably the stack's master.
 Changing anything on it may affect the whole stack's link to the inverter.
 
+### Restart and standby seen from the pack (2026-10-24)
+
+The user clicked restart and standby in the stock app on pack 2, and both
+worked. The app saves no frame log. Its real-time CSV (one row a second)
+shows the effect:
+
+- **Restart** (09:15:29 and 09:17:21): the pack stopped answering for
+  4-5 s, then reported "Idle" for a second before going back to
+  "Discharge".
+- **Standby** (09:23:30-48): the pack kept answering, but both MOSFETs were
+  off and the current was 0 A for about 18 s. Then both came back on and it
+  went back to discharging. Standby cuts the pack's output.
+
+The frames are still unknown. These observations give the read-back
+checks: restart means the pack goes silent and then answers again;
+standby means the I/O bits (0x1020 bits 0 and 1) both read off while the
+pack keeps answering.
+
 ## Finding the missing frames without decompiling
 
 The stock app already knows every frame. Capture its traffic instead of
 reading its code:
+
+The stock app does not save its frames (checked 2026-10-24). Use either a
+second adapter running `listen` (below) or a Windows serial-port monitor on
+the stock app's COM port.
 
 1. Connect the PC running the stock app to one pack as usual.
 2. Connect a second USB-RS485 adapter to the same A/B pair, on any computer.
