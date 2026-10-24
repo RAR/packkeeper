@@ -2,7 +2,8 @@
 
 The raw registers are the source of truth. A file whose decoded values do not
 match its raw registers is refused, so a hand-edited value cannot silently be
-ignored or half-applied.
+ignored or half-applied. A register the pack did not send is null, and so
+are the raw and value of a setting that uses it.
 """
 
 from __future__ import annotations
@@ -61,8 +62,8 @@ def to_dict(block: Block, port: str | None = None) -> dict:
             key: {
                 "register": f"0x{s.register:02X}",
                 "width": s.width,
-                "raw": block.raw(key),
-                "value": float(s.value(block.raw(key))),
+                "raw": block.raw(key) if block.has(key) else None,
+                "value": float(s.value(block.raw(key))) if block.has(key) else None,
                 "unit": s.display_unit or None,
             }
             for key, s in d.table.items()
@@ -84,9 +85,11 @@ def load(path: Path) -> Backup:
     return from_dict(data, str(path))
 
 
-def _ints(regs, where: str) -> list[int]:
-    if not isinstance(regs, list) or not all(isinstance(v, int) and not isinstance(v, bool) for v in regs):
-        raise BackupError(f"{where}: 'registers' must be a list of integers")
+def _ints(regs, where: str) -> list[int | None]:
+    if not isinstance(regs, list) or not all(
+        v is None or (isinstance(v, int) and not isinstance(v, bool)) for v in regs
+    ):
+        raise BackupError(f"{where}: 'registers' must be a list of integers (null: not sent)")
     return regs
 
 
@@ -133,6 +136,13 @@ def from_dict(data: dict, where: str = "backup") -> Backup:
     for key, entry in (data.get("settings") or {}).items():
         s = driver.table.get(key)
         if s is None:
+            continue
+        if not block.has(key):
+            if not isinstance(entry, dict) or entry.get("raw") is not None or entry.get("value") is not None:
+                raise BackupError(
+                    f"{where}: {key} has a value, but the pack did not send register 0x{s.register:02X}; "
+                    "the file was edited"
+                )
             continue
         raw = block.raw(key)
         if not isinstance(entry, dict) or entry.get("raw") != raw:

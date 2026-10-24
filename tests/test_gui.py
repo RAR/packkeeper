@@ -662,3 +662,29 @@ def test_a_failed_settings_read_is_written_to_the_log(window, monkeypatch):
     w.read_settings()
     wait(app, lambda: shown)
     assert any("ERROR" in line and "the device sent 68 registers" in line for line in w.pack.log.lines)
+
+
+def test_a_setting_the_pack_did_not_send_is_greyed_out_and_never_staged(window):
+    from packkeeper.drivers.jbd_up import DRIVER
+    from packkeeper.drivers.jbd_up.sim import FakeJbd
+    from packkeeper.session import SessionLog
+
+    app, w = window
+    w.bms.setCurrentIndex(w.bms.findData("jbd-up"))
+    sim = FakeJbd()
+    full = DRIVER.open_device(sim, SessionLog(), 0).read_block()
+    sim.sends[0x1C00] = 0x1C86  # static sleep delay not sent
+    short = DRIVER.open_device(sim, SessionLog(), 0).read_block()
+    tab = w.settings
+    tab.set_block(short)
+    field = tab.fields["static_sleep_delay"]
+    assert not field.edit.isEnabled() and field.edit.text() == "" and "not sent" in field.sub.text()
+    assert tab.fields["standby_sleep_current"].edit.isEnabled()
+    assert "1 setting(s) not sent" in tab.read_label.text()
+    changed = full.with_raws({DRIVER.table["static_sleep_delay"].register: 60,
+                              DRIVER.table["standby_sleep_current"].register: 20})
+    tab.add_source(gui.settings_view.Source("other", changed))
+    assert "60" in field.edit.toolTip()
+    tab.stage_all()
+    assert tab.staged == {"standby_sleep_current": 20}
+    assert "1 setting(s) were not sent by one side" in tab.ref_text.text()

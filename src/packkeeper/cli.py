@@ -295,10 +295,14 @@ def print_identity(block: Block) -> None:
     if block.driver.supports_clock:
         bad = f"invalid (0x{ident.clock_raw:08X})" if ident.clock_raw is not None else "invalid"
         print(f"BMS clock {ident.clock or bad}")
-    for label, text in block.driver.info_lines(block):
+    for label, text in block.info_lines():
         print(f"{label:9s} {text}")
-    for w in block.driver.identity_warnings(block):
+    for w in block.identity_warnings():
         print(f"warning: {w}")
+    missing = block.missing_keys
+    if missing:
+        print(f"warning: the pack did not send {len(missing)} setting(s), shown as not sent and never written: "
+              f"{', '.join(block.driver.table[k].label for k in missing)}")
 
 
 def cmd_info(args) -> int:
@@ -319,8 +323,10 @@ def cmd_backup(args) -> int:
     print_identity(block)
     backup.save(args.file, block, port=getattr(pack.transport, "port", None))
     pack.log.result(f"backup saved to {args.file}")
-    print(f"\nSaved {len(block.registers)} registers ({len(block.driver.table)} settings, "
-          f"{len(block.unknown_registers())} unknown kept) to {args.file}")
+    not_sent = len(block.missing_registers)
+    print(f"\nSaved {len(block.registers) - not_sent} registers ({len(block.driver.table)} settings, "
+          f"{len(block.unknown_registers())} unknown kept"
+          + (f", {not_sent} not sent by the pack and saved as null" if not_sent else "") + f") to {args.file}")
     return 0
 
 
@@ -352,12 +358,17 @@ def cmd_diff(args) -> int:
     print(f"{'Setting':{width}}  {'Pack':>12}  {'Other':>12}")
     for r in rows:
         s = r.setting
-        print(f"{s.label:{width}}  {s.format(r.a, f):>12}  {s.format(r.b, f):>12}")
-        pack.log.result(f"differs: {s.label} pack {s.format(r.a)} other {s.format(r.b)}")
+        print(f"{s.label:{width}}  {_shown(s, r.a, f):>12}  {_shown(s, r.b, f):>12}")
+        pack.log.result(f"differs: {s.label} pack {_shown(s, r.a)} other {_shown(s, r.b)}")
     for reg in unknown:
-        print(f"unknown register 0x{reg:02X}: pack {block.reg(reg)}, other {source.reg(reg)} (never written)")
+        pv, sv = (b.reg(reg) if b.sent(reg) else "not sent" for b in (block, source))
+        print(f"unknown register 0x{reg:02X}: pack {pv}, other {sv} (never written)")
     print(f"\n{len(rows)} setting(s) differ.")
     return 1
+
+
+def _shown(s, raw: int | None, fahrenheit: bool = False) -> str:
+    return "not sent" if raw is None else s.format(raw, fahrenheit)
 
 
 def parse_pairs(pairs: list[str], fahrenheit: bool, table: SettingTable) -> dict[str, int]:
@@ -450,7 +461,8 @@ def run_write(pack: ModbusDevice, targets: dict[str, int], source_name: str, arg
     print(f"\nSource: {source_name}")
     print_plan(plan, f)
     if source is not None and not args.unsafe:
-        left = [k for k in block.driver.table.unsafe_keys if source.raw(k) != block.raw(k)]
+        left = [k for k in block.driver.table.unsafe_keys
+                if source.has(k) and block.has(k) and source.raw(k) != block.raw(k)]
         if left:
             print(f"note: {len(left)} unsafe setting(s) differ and were left alone (use --unsafe to include them)")
     for line in plan.warnings:

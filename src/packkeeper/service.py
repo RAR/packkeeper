@@ -63,15 +63,19 @@ class ApplyResult:
 
 
 def register_diff(a: Block, b: Block) -> list[int]:
-    """Writable registers (known or not) that differ between two blocks."""
+    """Writable registers (known or not) that differ between two blocks,
+    including one sent in only one of them."""
     a.same_driver(b)
     ra, rb = a.threshold_registers(), b.threshold_registers()
-    return [r for r in ra if ra[r] != rb[r]]
+    return sorted(r for r in ra.keys() | rb.keys() if ra.get(r) != rb.get(r))
 
 
 def describe_register(block: Block, reg: int) -> str:
     s = block.driver.table.covering.get(reg)
-    return f"{s.label} = {s.format(block.raw(s.key))}" if s else f"unknown register 0x{reg:02X} = {block.reg(reg)}"
+    name = s.label if s else f"unknown register 0x{reg:02X}"
+    if not (block.has(s.key) if s else block.sent(reg)):
+        return f"{name} not sent"
+    return f"{name} = {s.format(block.raw(s.key))}" if s else f"{name} = {block.reg(reg)}"
 
 
 def apply_plan(
@@ -107,7 +111,10 @@ def apply_plan(
         raise PackError(f"writes are off: {pack.write_refusal}; nothing was written")
     changed = register_diff(plan.base, now)
     if changed:
-        what = ", ".join(dict.fromkeys(describe_register(now, r) for r in changed))
+        what = ", ".join(dict.fromkeys(
+            describe_register(now, r) + ("" if plan.base.sent(r) else " (not sent when the diff was made)")
+            for r in changed
+        ))
         log.error(f"pack changed since the diff was made: {what}")
         raise StaleError(
             f"the pack's settings changed since the diff was made ({what}). "
@@ -164,6 +171,16 @@ def apply_plan(
             return out
 
         final = block
+        if not block.has(change.key):
+            log.result(result.describe())
+            out = ApplyResult(
+                results,
+                block,
+                stopped=f"the read-back after {change.setting.label} did not include it, so the write is "
+                "unconfirmed; read the pack and diff it before doing anything else",
+            )
+            _log_summary(log, out, table)
+            return out
         result.reported = block.raw(change.key)
         result.status = CONFIRMED if result.reported == change.new else NOT_APPLIED
         expected = expected.with_raws({change.register: change.new})
@@ -175,6 +192,8 @@ def apply_plan(
 
             def expected_text(r: int, expected: Block = expected) -> str:
                 s = table.covering.get(r)
+                if not (expected.has(s.key) if s else expected.sent(r)):
+                    return "not sent"
                 return f"{s.format(expected.raw(s.key))}" if s and s.width > 1 else f"{expected.reg(r)} raw"
 
             unexpected = list(
@@ -205,7 +224,7 @@ def apply_plan(
 def _log_summary(log, out: ApplyResult, table: SettingTable) -> None:
     if out.stopped and out.final is not None:
         for a, b in table.linked:
-            if out.final.raw(a) != out.final.raw(b):
+            if out.final.has(a) and out.final.has(b) and out.final.raw(a) != out.final.raw(b):
                 sa, sb = table[a], table[b]
                 out.warnings.append(
                     f"the pack is left with {sa.label} {sa.format(out.final.raw(a))} and {sb.label} "
@@ -247,15 +266,23 @@ def set_clock(pack: Device, t: datetime) -> ClockResult:
 @dataclass
 class DiffRow:
     key: str
-    a: int
-    b: int
+    a: int | None  # None: not sent
+    b: int | None
     setting: Setting
 
 
+def raw_or_none(block: Block, key: str) -> int | None:
+    return block.raw(key) if block.has(key) else None
+
+
 def diff_blocks(a: Block, b: Block) -> tuple[list[DiffRow], list[int]]:
-    """Known settings that differ, and unknown writable registers that differ."""
+    """Known settings that differ (or were sent on one side only), and unknown writable registers that differ."""
     a.same_driver(b)
     table = a.driver.table
-    rows = [DiffRow(k, a.raw(k), b.raw(k), s) for k, s in table.items() if a.raw(k) != b.raw(k)]
+    rows = [
+        DiffRow(k, raw_or_none(a, k), raw_or_none(b, k), s)
+        for k, s in table.items()
+        if raw_or_none(a, k) != raw_or_none(b, k)
+    ]
     unknown = [r for r in register_diff(a, b) if r not in table.covering]
     return rows, unknown

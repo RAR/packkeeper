@@ -9,6 +9,10 @@ Intermediate blocks: a write may not break an ORDER rule that holds in the
 block it is applied to. Rules the pack already breaks are allowed to stay
 broken until a later write in the same plan fixes them; the final block must
 satisfy every rule.
+
+Settings the pack did not send are never written. Neither is a setting whose
+rule or linked partner was not sent, since the rule cannot be checked. A
+restore or copy leaves them alone, with a note.
 """
 
 from __future__ import annotations
@@ -91,7 +95,8 @@ def make_plan(
     linked = table.linked if linked is None else linked
     plan = Plan(base=base, allow_unsafe=allow_unsafe)
     base.check_not_blank()
-    current = base.raws()
+    current = base.raws()  # only what the pack sent
+    left_alone: list[str] = []
 
     wanted: dict[str, int] = {}
     for key, raw in targets.items():
@@ -102,6 +107,13 @@ def make_plan(
         blocked = [r for r in s.registers if not base.driver.is_writable(r)]
         if blocked:
             plan.errors.append(f"{s.label}: register 0x{blocked[0]:02X} is not writable")
+            continue
+        if key not in current:
+            if source is not None:
+                left_alone.append(key)
+            else:
+                plan.errors.append(f"{s.label}: the pack did not send it, so it cannot be written")
+                plan.problem_keys.add(key)
             continue
         if raw == current[key]:
             continue
@@ -118,12 +130,28 @@ def make_plan(
 
     final = {**current, **wanted}
     plan.proposed = sorted(
-        (Change(table[k], current[k], r) for k, r in targets.items() if k in table and r != current[k]),
+        (Change(table[k], current[k], r) for k, r in targets.items() if k in current and r != current[k]),
         key=lambda c: c.register,
     )
 
+    def unchecked(a: str, b: str, why: str) -> bool:
+        """True if a or b was not sent; an error if the other is being changed."""
+        gone = [k for k in (a, b) if k not in current]
+        if not gone:
+            return False
+        changing = [k for k in (a, b) if k in wanted]
+        if changing:
+            plan.problem_keys.update(changing)
+            plan.errors.append(
+                f"{table[changing[0]].label} cannot be checked against {table[gone[0]].label} ({why}): "
+                "the pack did not send it"
+            )
+        return True
+
     for pair in linked:
         a, b = pair
+        if unchecked(a, b, "they must be equal"):
+            continue
         if a in wanted or b in wanted:
             if final[a] != final[b]:
                 plan.problem_keys.update((a, b))
@@ -137,7 +165,11 @@ def make_plan(
                 f"the pack has {table[a].label} != {table[b].label}; they ship equal"
             )
 
+    checkable = []
     for rule in rules:
+        if unchecked(rule.lower, rule.upper, table.describe_rule(rule)):
+            continue
+        checkable.append(rule)
         if not rule.holds(final):
             plan.problem_keys.update((rule.lower, rule.upper))
             already = "" if (rule.lower in wanted or rule.upper in wanted) else " (the pack already breaks this rule; include a fix for it)"
@@ -149,10 +181,22 @@ def make_plan(
             if err:
                 plan.warnings.append(f"the pack currently has {err} (not being changed)")
 
+    if left_alone:
+        plan.notes.append(
+            f"left alone, the pack did not send them: {', '.join(table[k].label for k in left_alone)}"
+        )
+    if source is not None:
+        unsent = [k for k in table if k in current and not source.has(k) and (allow_unsafe or not table[k].unsafe)]
+        if unsent:
+            plan.notes.append(
+                f"left alone, the source has no value for them (not sent when it was read): "
+                f"{', '.join(table[k].label for k in unsent)}"
+            )
+
     if plan.errors:
         return plan
 
-    order, stuck = _order(table, current, wanted, rules)
+    order, stuck = _order(table, current, wanted, checkable)
     if stuck:
         blocked = "; ".join(
             f"{table[k].label} is blocked by: {', '.join(table.describe_rule(r, current, fahrenheit) for r in rs)}"
@@ -201,11 +245,15 @@ def _order(
 
 
 def targets_from_block(source: Block, skip: set[str] = frozenset(), allow_unsafe: bool = False) -> dict[str, int]:
-    """Every known setting of `source`; unknown registers are never included,
+    """Every known setting `source` holds; unknown registers are never included,
     and unsafe settings only when asked for."""
     source.check_not_blank()
     table = source.driver.table
-    return {k: source.raw(k) for k in table if k not in skip and (allow_unsafe or not table[k].unsafe)}
+    return {
+        k: source.raw(k)
+        for k in table
+        if k not in skip and source.has(k) and (allow_unsafe or not table[k].unsafe)
+    }
 
 
 def identity_warnings(pack: Block, source: Block, source_name: str) -> list[str]:

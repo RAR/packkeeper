@@ -833,7 +833,7 @@ class MainWindow(QMainWindow):
             return
         self.settings.set_block(block)
         self.clock.show_block(block)
-        warnings = block.driver.identity_warnings(block)
+        warnings = block.identity_warnings()
         for warning in warnings:
             self.log.warn(warning)
         text = f"<b>{block.model}</b> · firmware {block.firmware}"
@@ -871,7 +871,7 @@ class MainWindow(QMainWindow):
             return
         block = self.settings.block
         if block is not None:
-            rt.extra = [*rt.extra, *block.driver.info_lines(block)]
+            rt.extra = [*rt.extra, *block.info_lines()]
         self._last_rt = rt
         self.live.show_realtime(rt, self.fahrenheit)
 
@@ -890,7 +890,7 @@ class MainWindow(QMainWindow):
         targets = dict(self.settings.staged)
         src = self.settings.current_source()
         # A restore or copy: every staged value comes from the comparison.
-        from_source = src is not None and all(src.block.raw(k) == v for k, v in targets.items())
+        from_source = src is not None and all(src.block.has(k) and src.block.raw(k) == v for k, v in targets.items())
         name = src.name if from_source else "values entered here"
         fahrenheit = self.fahrenheit
         allow_unsafe = self.settings.unsafe_on

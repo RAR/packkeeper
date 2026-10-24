@@ -148,6 +148,11 @@ def _shown(s, raw: int, fahrenheit: bool, unit: bool = False) -> str:
     return text.split(" (", 1)[0] if s.bits is not None else text
 
 
+def _raw(block: Block, key: str) -> int | None:
+    """The raw value, or None if the pack did not send it."""
+    return block.raw(key) if block.has(key) else None
+
+
 class SettingField(QWidget):
     """One editable value with a one-line note under it."""
 
@@ -502,13 +507,13 @@ class SettingsTab(QWidget):
         self.block = block
         self.read_at = datetime.now() if block is not None else None
         if block is not None:
-            self.staged = {k: v for k, v in self.staged.items() if block.raw(k) != v}
+            self.staged = {k: v for k, v in self.staged.items() if block.has(k) and block.raw(k) != v}
         self.refresh()
 
     def stage(self, key: str, raw: int):
         """Stage `raw` for `key`; the linked register follows."""
         for k in (key, self.table.partner(key)):
-            if k is None:
+            if k is None or not self.block.has(k):
                 continue
             self.bad.pop(k, None)
             if raw == self.block.raw(k):
@@ -552,7 +557,7 @@ class SettingsTab(QWidget):
         src = self.current_source()
         if action == "undo":
             self.unstage(key)
-        elif action == "ref" and src is not None and self.block is not None:
+        elif action == "ref" and src is not None and self.block is not None and src.block.has(key):
             self.stage(key, src.block.raw(key))
         self.refresh()
 
@@ -574,7 +579,10 @@ class SettingsTab(QWidget):
         if src is None or self.block is None:
             return
         self.bad.clear()
-        self.staged = {k: v for k, v in targets_from_block(src.block, allow_unsafe=self.unsafe_on).items() if v != self.block.raw(k)}
+        self.staged = {
+            k: v for k, v in targets_from_block(src.block, allow_unsafe=self.unsafe_on).items()
+            if self.block.has(k) and v != self.block.raw(k)
+        }
         self.refresh()
         if not self.staged:
             self.main.status("The pack already matches the comparison.")
@@ -598,8 +606,16 @@ class SettingsTab(QWidget):
             if block is None:
                 field.show_value("", "", "", s.label, False, False)
                 continue
+            ref_raw = _raw(src.block, key) if src is not None else None
+            if not block.has(key):
+                tip = [f"{s.label}  (0x{s.register:02X}, {key})",
+                       "The pack did not send this setting when it was read, so it cannot be changed here."]
+                if ref_raw is not None:
+                    tip.append(f"{src.name}: {s.format(ref_raw, f)}")
+                field.show_value("", "", f"<span style='color:{WARN.name()}'>not sent</span>", "\n".join(tip),
+                                 False, False)
+                continue
             pack_raw = block.raw(key)
-            ref_raw = src.block.raw(key) if src is not None else None
             tip = [
                 f"{s.label}  (0x{s.register:02X}, {key})",
                 f"Pack: {s.format(pack_raw, f)}",
@@ -639,7 +655,12 @@ class SettingsTab(QWidget):
     def _render_top(self, src: Source | None):
         has = self.block is not None
         if has:
-            self.read_label.setText(f"Read from the pack at {self.read_at:%H:%M:%S}")
+            text = f"Read from the pack at {self.read_at:%H:%M:%S}"
+            missing = len(self.block.missing_keys)
+            if missing:
+                text += (f" · <span style='color:{WARN.name()}'>{missing} setting(s) not sent by the pack; "
+                         "they cannot be changed</span>")
+            self.read_label.setText(text)
         else:
             self.read_label.setText("<span style='color:palette(placeholder-text)'>Connect a pack to read its settings.</span>")
         # Also the way to retry after a failed first read or a paused live view.
@@ -661,7 +682,10 @@ class SettingsTab(QWidget):
             staged = sum(k in self.staged for k in keys)
             differs = 0
             if src is not None and self.block is not None:
-                differs = sum(src.block.raw(k) != self.staged.get(k, self.block.raw(k)) for k in keys)
+                differs = sum(
+                    _raw(src.block, k) != self.staged.get(k, self.block.raw(k))
+                    for k in keys if self.block.has(k) and src.block.has(k)
+                )
             pills = []
             if bad:
                 pills.append(_pill("!", BAD, "Has a problem to fix before writing"))
@@ -716,11 +740,14 @@ class SettingsTab(QWidget):
         # Comparison box.
         self.ref_box.setVisible(src is not None and self.block is not None)
         if src is not None and self.block is not None:
-            diff = [k for k in self.driver.ordered_keys if self._visible(k) and src.block.raw(k) != self.block.raw(k)]
+            both = [k for k in self.driver.ordered_keys if src.block.has(k) and self.block.has(k)]
+            diff = [k for k in both if self._visible(k) and src.block.raw(k) != self.block.raw(k)]
             hidden = sum(
                 self.table[k].unsafe and src.block.raw(k) != self.block.raw(k)
-                for k in self.driver.ordered_keys if not self._visible(k)
+                for k in both if not self._visible(k)
             )
+            one_side = sum(_raw(src.block, k) != _raw(self.block, k) for k in self.driver.ordered_keys
+                           if self._visible(k) and k not in both)
             pending = [k for k in diff if self.staged.get(k) != src.block.raw(k)]
             lines = [f"<b>{src.name}</b>"]
             if not diff:
@@ -733,6 +760,8 @@ class SettingsTab(QWidget):
                     f"{hidden} unsafe setting(s) differ and are left alone "
                     "(tick Show unsafe settings to include them)."
                 )
+            if one_side:
+                lines.append(f"{one_side} setting(s) were not sent by one side and are left alone.")
             lines += [f"<span style='color:{WARN.name()}'>{w}</span>"
                       for w in identity_warnings(self.block, src.block, "It")]
             self.ref_text.setText("<br>".join(lines))

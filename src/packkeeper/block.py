@@ -33,6 +33,10 @@ class DriverMismatch(Exception):
     """Two blocks (or a block and a device) belong to different BMS types."""
 
 
+class MissingRegister(Exception):
+    """A value the pack did not send when the block was read."""
+
+
 class Area(NamedTuple):
     """Registers read in one go: register i is at start + i * stride."""
 
@@ -55,10 +59,15 @@ class Identity:
 
 @dataclass(frozen=True)
 class Block:
-    """The registers of every area the driver reads, unknown ones included."""
+    """The registers of every area the driver reads, unknown ones included.
+
+    A register the pack did not send (a short reply, or a refused read of an
+    area with no settings in it) is None: shown as not sent, saved as null,
+    never written, and never guessed.
+    """
 
     driver: "Driver" = field(repr=False)
-    areas: tuple[tuple[int, ...], ...]
+    areas: tuple[tuple[int | None, ...], ...]
 
     def __post_init__(self):
         layout = self.driver.areas
@@ -71,11 +80,11 @@ class Block:
                     f"got {len(values)}"
                 )
             for v in values:
-                if not 0 <= v <= 0xFFFF:
+                if v is not None and not 0 <= v <= 0xFFFF:
                     raise ValueError(f"register value {v} does not fit 16 bits")
 
     @property
-    def registers(self) -> tuple[int, ...]:
+    def registers(self) -> tuple[int | None, ...]:
         return tuple(v for values in self.areas for v in values)
 
     def _locate(self, address: int) -> tuple[int, int]:
@@ -85,30 +94,76 @@ class Block:
                 return n, i
         raise KeyError(f"0x{address:02X} is not in a {self.driver.label} block")
 
+    def sent(self, register: int) -> bool:
+        n, i = self._locate(register)
+        return self.areas[n][i] is not None
+
     def reg(self, register: int) -> int:
         n, i = self._locate(register)
-        return self.areas[n][i]
+        v = self.areas[n][i]
+        if v is None:
+            raise MissingRegister(f"the pack did not send 0x{register:02X}")
+        return v
 
     def regs(self, start: int, count: int) -> list[int]:
         n, i = self._locate(start)
         if i + count > len(self.areas[n]):
             raise KeyError(f"0x{start:02X} x{count} runs past the end of its area")
-        return list(self.areas[n][i : i + count])
+        values = self.areas[n][i : i + count]
+        if None in values:
+            stride = self.driver.areas[n].stride
+            raise MissingRegister(f"the pack did not send 0x{start + values.index(None) * stride:02X}")
+        return list(values)
 
-    def addresses(self) -> list[tuple[int, int]]:
-        """(address, value) for every register, area by area."""
+    def addresses(self) -> list[tuple[int, int | None]]:
+        """(address, value) for every register, area by area; None if not sent."""
         return [(a, v) for area, values in zip(self.driver.areas, self.areas) for a, v in zip(area.addresses(), values)]
+
+    @property
+    def present_registers(self) -> set[int]:
+        return {a for a, v in self.addresses() if v is not None}
+
+    @property
+    def missing_registers(self) -> set[int]:
+        return {a for a, v in self.addresses() if v is None}
+
+    def has(self, key: str) -> bool:
+        """Whether the pack sent every register of this setting."""
+        return all(self.sent(r) for r in self.driver.table[key].registers)
+
+    @property
+    def missing_keys(self) -> list[str]:
+        return [k for k in self.driver.table if not self.has(k)]
 
     def raw(self, key: str) -> int:
         s = self.driver.table[key]
-        return s.decode(self.reg(r) for r in s.registers)
+        try:
+            return s.decode([self.reg(r) for r in s.registers])
+        except MissingRegister:
+            raise MissingRegister(f"the pack did not send {s.label} (0x{s.register:02X})") from None
 
     def raws(self) -> dict[str, int]:
-        return {k: self.raw(k) for k in self.driver.table}
+        """Every setting the pack sent."""
+        return {k: self.raw(k) for k in self.driver.table if self.has(k)}
 
     @property
     def identity(self) -> "Identity":
-        return self.driver.identity(self)
+        try:
+            return self.driver.identity(self)
+        except MissingRegister:
+            return Identity()
+
+    def info_lines(self) -> list[tuple[str, str]]:
+        try:
+            return self.driver.info_lines(self)
+        except MissingRegister:
+            return []
+
+    def identity_warnings(self) -> list[str]:
+        try:
+            return self.driver.identity_warnings(self)
+        except MissingRegister:
+            return []
 
     @property
     def model(self) -> str:
@@ -134,8 +189,17 @@ class Block:
     def thresholds_blank(self) -> bool:
         return all(v == 0 for r, v in self.threshold_registers().items())
 
+    def blank_reason(self) -> str | None:
+        """Why this read must not be used, or None."""
+        if not self.threshold_registers():
+            return f"the {self.driver.label} sent none of its settings registers; refusing to use this read"
+        try:
+            return self.driver.blank_reason(self)
+        except MissingRegister as e:
+            return f"{e}, which is needed to check this read; refusing to use it"
+
     def check_not_blank(self) -> "Block":
-        reason = self.driver.blank_reason(self)
+        reason = self.blank_reason()
         if reason:
             raise BlankBlockError(reason)
         return self
@@ -156,12 +220,14 @@ class Block:
             pairs = zip(s.registers, s.encode(raw)) if s else ((register, raw),)
             for address, word in pairs:
                 n, i = self._locate(address)
+                if areas[n][i] is None:
+                    raise MissingRegister(f"the pack did not send 0x{address:02X}; it cannot be given a value")
                 areas[n][i] = word
         return Block(self.driver, tuple(tuple(a) for a in areas))
 
     def threshold_registers(self) -> dict[int, int]:
-        """Every register the driver allows writing, known or not."""
-        return {a: v for a, v in self.addresses() if self.driver.is_writable(a)}
+        """Every register the driver allows writing, known or not, that the pack sent."""
+        return {a: v for a, v in self.addresses() if v is not None and self.driver.is_writable(a)}
 
     def unknown_registers(self) -> dict[int, int]:
         """Writable registers no setting covers; never written."""

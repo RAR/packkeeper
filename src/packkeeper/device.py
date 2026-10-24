@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Protocol
 
 from . import modbus
-from .block import Area, Block
+from .block import Area, Block, MissingRegister
 from .errors import DeviceRefused, FrameError
 from .live import Live
 from .session import SessionLog
@@ -44,12 +44,17 @@ class Device(Protocol):
     write_refusal: str | None
     bus_chatter: str | None
 
-    def read_area(self, area, retries: int = READ_RETRIES) -> list[int]: ...
+    def read_area(self, area, retries: int = READ_RETRIES, partial: bool = False) -> list[int | None]: ...
     def read_block(self) -> Block: ...
     def read_live(self, retries: int = READ_RETRIES) -> Live: ...
     def write_setting(self, setting: "Setting", raw: int) -> bool: ...
     def write_clock(self, t: datetime) -> bool: ...
     def close(self) -> None: ...
+
+
+def _list(addresses: set[int], most: int = 8) -> str:
+    shown = ", ".join(f"0x{a:02X}" for a in sorted(addresses)[:most])
+    return shown + (f" and {len(addresses) - most} more" if len(addresses) > most else "")
 
 
 class ModbusDevice:
@@ -65,6 +70,7 @@ class ModbusDevice:
         self.framing = driver.new_framing()
         self.write_refusal: str | None = None
         self.bus_chatter: str | None = None
+        self._not_sent: set[int] = set()  # what the last block read was missing, to warn on changes only
 
     def _heard(self) -> None:
         """Warn once if the bytes around the last reply show another master on the line."""
@@ -113,36 +119,61 @@ class ModbusDevice:
         assert last is not None
         raise last
 
-    def read_area(self, area, retries: int = READ_RETRIES) -> list[int]:
-        """One area, in reads of at most framing.max_read registers."""
+    def read_area(self, area, retries: int = READ_RETRIES, partial: bool = False) -> list[int | None]:
+        """One area, in reads of at most framing.max_read registers.
+
+        With `partial`, registers the device does not send are None: the end
+        of a short reply, or a refused read in an area with no writable
+        register (a refusal in a settings area may mean wrong addressing, so it
+        stays an error). Without it, both are errors.
+        """
         area = Area(*area)
-        out: list[int] = []
+        out: list[int | None] = []
         step = self.framing.max_read
+        settings = any(self.driver.is_writable(a) for a in area.addresses())
         for i in range(0, area.count, step):
             n = min(step, area.count - i)
-            got = self.read(area.start + i * area.stride, n, retries)
-            if len(got) < n:
+            start = area.start + i * area.stride
+            try:
+                got: list[int | None] = list(self.read(start, n, retries))
+            except DeviceRefused as e:
+                if not partial or settings:
+                    raise
+                self.log.warn(f"the device refused 0x{start:02X} x{n} ({e}); those registers are marked not sent")
+                got = []
+            if len(got) < n and not partial:
                 raise FrameError(
                     f"0x{area.start:02X}: the device sent {i + len(got)} registers, expected {area.count}"
                 )
-            out += got
+            out += got + [None] * (n - len(got))
         return out
 
     def read_block(self) -> Block:
         """The settings block; refuses a read the driver calls blank."""
         d = self.driver
         try:
-            block = d.block(*(self.read_area(a) for a in d.areas))
+            block = d.block(*(self.read_area(a, partial=True) for a in d.areas))
         except DeviceRefused as e:
             if not d.read_error_hint:
                 raise
             self.log.warn(d.read_error_hint)
             raise PackError(f"{e}. {d.read_error_hint}") from e
-        reason = d.blank_reason(block)
+        missing = block.missing_registers
+        if missing != self._not_sent:
+            self._not_sent = missing
+            if missing:
+                self.log.warn(
+                    f"the pack did not send {len(missing)} register(s) ({_list(missing)}); "
+                    "they show as not sent and are never written"
+                )
+        reason = block.blank_reason()
         if reason:
             self.log.error(f"refusing this read: {reason}")
         block.check_not_blank()
-        refusal = d.check_device(self, block)
+        try:
+            refusal = d.check_device(self, block)
+        except MissingRegister as e:
+            refusal = f"{e}, which writes need"
         if refusal and refusal != self.write_refusal:
             self.log.error(f"writes are off: {refusal}")
         elif self.write_refusal and not refusal:
