@@ -92,7 +92,8 @@ class SerialTransport:
         self.timeout = timeout
         self.noise = b""  # bytes dropped before the last reply
         self.gap = getattr(self.framing, "request_gap", 0.0)
-        self._idle_since = 0.0  # when the last reply (or timeout) ended
+        self._idle_since = 0.0  # perf_counter() when the last reply (or timeout) ended; monotonic() ticks
+        # only every 15.6 ms on Windows, too coarse for the gap
         self._late = False  # the last request timed out: its reply may still arrive
         # POSIX ports are shared unless asked otherwise; Windows ports are always exclusive.
         extra = {"exclusive": True} if os.name == "posix" else {}
@@ -114,7 +115,7 @@ class SerialTransport:
         s = self._serial
         if self._late:
             self._drain()
-        wait = self._idle_since + self.gap - time.monotonic()
+        wait = self._idle_since + self.gap - time.perf_counter()
         if wait > 0:
             time.sleep(wait)
         s.reset_input_buffer()
@@ -129,11 +130,11 @@ class SerialTransport:
             want = self.framing.reply_length(reply)
             n = (want - len(reply)) if want is not None else self.framing.head_len - len(reply)
             if want is not None and n <= 0:
-                self._idle_since = time.monotonic()
+                self._idle_since = time.perf_counter()
                 return reply
             reply += s.read(n)
         self._late = True
-        self._idle_since = time.monotonic()
+        self._idle_since = time.perf_counter()
         got = self.noise + reply
         self.noise = got  # everything heard, for spotting another master on the line
         raise NoReply(f"no reply from the pack on {self.port}" + (f" (got {got.hex(' ').upper()})" if got else ""))

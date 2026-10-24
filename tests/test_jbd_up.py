@@ -392,7 +392,7 @@ class TimedSerial:
     def write(self, data):
         import time
 
-        self.sent.append(time.monotonic())
+        self.sent.append(time.perf_counter())
         self.buf = self.pack.transact(bytes(data))
 
     def read(self, n):
@@ -400,7 +400,7 @@ class TimedSerial:
 
         out, self.buf = self.buf[:n], self.buf[n:]
         if out and not self.buf:
-            self.reply_done.append(time.monotonic())
+            self.reply_done.append(time.perf_counter())
         return out
 
     def flush(self):
