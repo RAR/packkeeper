@@ -13,6 +13,13 @@ def decode_bits(value: int, names: dict[int, str]) -> list[str]:
     return out
 
 
+def format_temp(c: float, fahrenheit: bool = False) -> str:
+    """A temperature for people: tenths when the BMS sends them (a float), whole degrees otherwise."""
+    shown = c * 9 / 5 + 32 if fahrenheit else c
+    return f"{shown:.1f} °{'F' if fahrenheit else 'C'}" if isinstance(c, float) else (
+        f"{shown:.0f} °F" if fahrenheit else f"{c} °C")
+
+
 @dataclass
 class Live:
     pack_voltage: float
@@ -21,8 +28,8 @@ class Live:
     soh: int
     cells: list[float]
     status_text: str
-    temps: list[tuple[str, int]] = field(default_factory=list)  # (label, °C)
-    max_temp: int | None = None
+    temps: list[tuple[str, float]] = field(default_factory=list)  # (label, °C); float when in tenths
+    max_temp: float | None = None
     warnings: list[str] = field(default_factory=list)
     protections: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
@@ -70,7 +77,7 @@ class Live:
             chunk = self.cells[row : row + 8]
             lines.append("  " + "  ".join(f"{row + i + 1:2d}:{v:.3f}" for i, v in enumerate(chunk)))
         if self.temps:
-            lines.append("Temps      " + "  ".join(f"{label} {t} °C" for label, t in self.temps))
+            lines.append("Temps      " + "  ".join(f"{label} {format_temp(t)}" for label, t in self.temps))
         lines.append(f"Warnings   {', '.join(self.warnings) or 'none'}")
         allowed = ""
         if self.charge_allowed is not None and self.discharge_allowed is not None:

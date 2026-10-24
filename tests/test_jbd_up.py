@@ -127,7 +127,7 @@ def test_live_decode():
     rt = dev.read_live()
     assert rt.cell_count == 16 and rt.cells[0] == 3.3 and rt.pack_voltage == 52.83
     assert rt.current == -3.2 and rt.soc == 76 and rt.soh == 100 and rt.cycles == 37
-    assert ("MOSFET", 31) in rt.temps and rt.max_temp == 25
+    assert ("MOSFET", 31.2) in rt.temps and rt.max_temp == 25.1
     assert rt.status_text == "Discharging" and rt.charge_allowed and rt.discharge_allowed
     assert rt.remaining_ah == 76.0 and rt.full_capacity_ah == 100.0
 
@@ -268,6 +268,7 @@ def test_apply_plan_refuses_a_forged_unsafe_change():
 
 
 REAL_FRAMES = Path(__file__).parent / "jbd_up_real_frames.txt"
+LIVE_2026_10_24 = Path(__file__).parent / "jbd_up_pack2_live_20261024.txt"
 
 
 def real_frames(path: Path = REAL_FRAMES) -> dict[bytes, bytes]:
@@ -375,3 +376,75 @@ def test_restoring_pack_1_stock_onto_pack_2_is_allowed():
     changes = {k: b1.raw(k) for k in b1.driver.table if b1.raw(k) != b2.raw(k) and not b1.driver.table[k].unsafe}
     p = make_plan(b2, changes)
     assert p.ok, p.errors
+
+
+class TimedSerial:
+    """A serial port backed by a simulated JBD pack, recording when each request goes out."""
+
+    def __init__(self, *a, **k):
+        from packkeeper.drivers.jbd_up.sim import FakeJbd
+
+        self.pack = FakeJbd(address=2)
+        self.buf = b""
+        self.sent: list[float] = []
+        self.reply_done: list[float] = []
+
+    def write(self, data):
+        import time
+
+        self.sent.append(time.monotonic())
+        self.buf = self.pack.transact(bytes(data))
+
+    def read(self, n):
+        import time
+
+        out, self.buf = self.buf[:n], self.buf[n:]
+        if out and not self.buf:
+            self.reply_done.append(time.monotonic())
+        return out
+
+    def flush(self):
+        pass
+
+    def reset_input_buffer(self):
+        pass
+
+    def close(self):
+        pass
+
+
+def test_each_request_waits_for_the_line_to_rest_after_a_reply(monkeypatch):
+    import serial
+
+    from packkeeper import transport
+    from packkeeper.drivers.jbd_up import DRIVER
+
+    monkeypatch.setattr(serial, "Serial", TimedSerial)
+    t = transport.SerialTransport("FAKE", params=DRIVER.serial, framing=DRIVER.new_framing())
+    DRIVER.open_device(t, SessionLog(), 2).read_block()
+    port = t._serial
+    assert len(port.sent) >= 6
+    gaps = [sent - done for sent, done in zip(port.sent[1:], port.reply_done)]
+    assert min(gaps) >= 0.1
+
+
+def test_modbus_requests_have_no_added_gap():
+    from packkeeper.drivers.eg4_ll import DRIVER as EG4
+    from packkeeper.drivers.jk_pb import DRIVER as JK
+
+    assert EG4.framing.request_gap == 0.0 and JK.framing.request_gap == 0.0
+
+
+def test_real_live_temperatures_keep_their_tenths():
+    from packkeeper.drivers.jbd_up import DRIVER, registers as R
+    from packkeeper.live import format_temp
+
+    # Pack 2's live reply, 2026-10-24 09:08:57; the stock app showed MOSFET 21.8, ambient 22.8,
+    # sensors 21.7 21.5 21.6 21.4 (deg C) a few minutes later.
+    (rep,) = [r for q, r in real_frames(LIVE_2026_10_24).items() if q[2:4] == b"\x10\x00"]
+    data = rep[8:-2]
+    rt = DRIVER.decode_live([int.from_bytes(data[i : i + 2], "big") for i in range(0, 2 * R.LIVE.count, 2)])
+    assert rt.temps == [("MOSFET", 21.8), ("ambient", 22.8), ("sensor 1", 21.7), ("sensor 2", 21.5),
+                        ("sensor 3", 21.6), ("sensor 4", 21.4)]
+    assert format_temp(21.8) == "21.8 °C" and format_temp(21.8, True) == "71.2 °F"
+    assert format_temp(25) == "25 °C" and format_temp(25, True) == "77 °F"  # whole-degree BMSes unchanged

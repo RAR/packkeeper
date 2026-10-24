@@ -49,7 +49,7 @@ from . import __version__, backup, drivers, qtcommon, settings_view
 from .block import Block
 from .device import BROADCAST_WARNING, ModbusDevice
 from .find import scan
-from .live import Live
+from .live import Live, format_temp
 from .planner import Plan, identity_warnings, make_plan
 from .qtcommon import APP_NAME, BAD, GOOD, WARN, error_text
 from .service import CONFIRMED, NOT_APPLIED, UNVERIFIED, ApplyResult, apply_plan, set_clock
@@ -185,8 +185,8 @@ class LiveTab(QWidget):
         lay.addWidget(self.updated)
 
     def show_realtime(self, rt: Live, fahrenheit: bool):
-        def t(c: int) -> str:
-            return f"{c * 9 / 5 + 32:.0f} °F" if fahrenheit else f"{c} °C"
+        def t(c: float) -> str:
+            return format_temp(c, fahrenheit)
 
         self.voltage.set(f"{rt.pack_voltage:.2f} V")
         self.current.set(f"{rt.current:+.2f} A")

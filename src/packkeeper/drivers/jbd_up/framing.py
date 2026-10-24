@@ -33,6 +33,8 @@ class JbdFraming:
     name = "JBD-UP"
     max_read = MAX_REPLY // 2
     head_len = 8
+    # A real pack now and then ignores a request sent the moment its last reply ends (2026-10-24 logs).
+    request_gap = 0.1
 
     def __init__(self, key: int = DEFAULT_KEY, request_ends: dict[int, int] | None = None):
         self.key = key

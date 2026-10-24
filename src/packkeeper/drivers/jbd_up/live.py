@@ -35,8 +35,8 @@ def decode(regs: list[int]) -> Live:
     def u32(off: int) -> int:
         return u16(off) << 16 | u16(off + 2)
 
-    def temp(raw: int) -> int:
-        return round((raw - 500) / 10)
+    def temp(raw: int) -> float:
+        return round((raw - 500) / 10, 1)  # the pack sends tenths, as the stock app shows them
 
     n = min(u16(0x42), 32)
     cells = [u16(0x44 + 2 * i) / 1000 for i in range(n) if 0x44 + 2 * i + 2 <= len(data)]

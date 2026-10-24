@@ -15,6 +15,7 @@ class Framing(Protocol):
     name: str
     max_read: int  # registers per read request
     head_len: int  # bytes needed before reply_length can answer
+    request_gap: float  # seconds the line must be idle after a reply before the next request
 
     def read_request(self, address: int, start: int, count: int) -> bytes: ...
     def parse_read(self, request: bytes, reply: bytes) -> list[int]: ...
@@ -28,6 +29,7 @@ class ModbusFraming:
     name = "Modbus RTU"
     max_read = modbus.MAX_READ
     head_len = 3
+    request_gap = 0.0
 
     def read_request(self, address: int, start: int, count: int) -> bytes:
         return modbus.read_request(address, start, count)
