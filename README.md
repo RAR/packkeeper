@@ -75,9 +75,9 @@ Open **PackKeeper**, pick the adapter's port and click **Connect**.
     and a per-write result.
 - **Clock:** sets the BMS clock to the computer's time, confirmed by
   reading it back.
-- **Controls** (ECO-WORTHY / JBD-UP): restart, standby sleep and a MOSFET
-  test, each checked by reading the pack. The MOSFET test has a **Stop**
-  button that goes back to Normal mode.
+- **Controls** (ECO-WORTHY / JBD-UP): restart, standby sleep, a MOSFET
+  test and Normal mode, each checked by reading the pack. The MOSFET test has
+  a **Stop** button that goes back to Normal mode.
 - **Log:** every frame sent and received (hex) and every result. Session logs
   and the pre-write backups go to `Documents/PackKeeper/`. (Before the app was
   renamed they went to `Documents/EG4 BMS Tool/`, which is left as it was.)
@@ -196,17 +196,25 @@ by typing `unsafe`. Restore defaults, factory reset and calibration are not in
 this tool.
 
 **Controls** (`packkeeper control --bms jbd-up`, or the **Controls** tab):
-restart, standby sleep and a MOSFET test. Each one sends frames captured from
+restart, standby sleep, a MOSFET test and Normal mode. Each one sends frames captured from
 JBD's own app, never computed ones, and checks the result by reading the pack:
 
 - **Restart**: the pack must go quiet and then answer again within 30 s.
 - **Standby sleep** (type `standby`): confirmed by its ack; the pack's status
-  is shown after.
+  is shown after. At 0 A the pack stops answering while it sleeps, so the
+  check waits up to 10 s for it to answer again and says how long it took.
 - **MOSFET test** (type `test`): Tooling mode (both MOSFETs off), charge on,
   both on, then back to Normal, each step checked against the live MOSFET bits.
   If a step fails, or you stop it or press Ctrl-C, it goes back to Normal mode
   and checks that. The pack's output is cut for a few seconds, so run it with
   little or no load.
+- **Normal mode**: takes the BMS out of Tooling mode (for example if the stock
+  app left it there); confirmed when the mode reads back as normal. The
+  MOSFETs' state is shown: in Normal mode the BMS drives them, so a protection
+  may hold one off.
+
+The live status JBD calls 0 is shown as **Idle**, as the stock app does: no
+current is flowing. It is not the standby sleep.
 
 `--dry-run` shows the frames and sends nothing. Nothing is sent while writes
 are off.

@@ -723,7 +723,7 @@ def test_controls_tab_only_for_a_bms_with_controls(window):
     w.bms.setCurrentIndex(w.bms.findData("jk-pb"))
     assert not w.tabs.isTabVisible(i)
     w.bms.setCurrentIndex(w.bms.findData("jbd-up"))
-    assert w.tabs.isTabVisible(i) and set(w.controls.buttons) == {"restart", "standby", "mosfet-test"}
+    assert w.tabs.isTabVisible(i) and set(w.controls.buttons) == {"restart", "standby", "mosfet-test", "normal"}
     assert not any(b.isEnabled() for b in w.controls.buttons.values())  # not connected
 
 

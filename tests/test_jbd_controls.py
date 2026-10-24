@@ -32,6 +32,7 @@ def fast(monkeypatch):
     monkeypatch.setattr(JC, "MOS_WAIT_S", 0.2)
     monkeypatch.setattr(JC, "QUIET_WAIT_S", 0.3)
     monkeypatch.setattr(JC, "BACK_WAIT_S", 0.5)
+    monkeypatch.setattr(JC, "SLEEP_WAIT_S", 0.3)
 
 
 def jbd(**kw):
@@ -44,14 +45,15 @@ def by_key():
     return {c.key: c for c in DRIVER.controls()}
 
 
-def test_the_driver_lists_three_controls_and_their_registers():
+def test_the_driver_lists_four_controls_and_their_registers():
     c = by_key()
-    assert list(c) == ["restart", "standby", "mosfet-test"]
-    assert [c[k].typed_word for k in c] == [None, "standby", "test"]
+    assert list(c) == ["restart", "standby", "mosfet-test", "normal"]
+    assert [c[k].typed_word for k in c] == [None, "standby", "test", None]
     assert DRIVER.control_registers == {0x2900, 0x2902, 0x2908, 0x2912}
     assert [(s.register, s.value) for s in c["mosfet-test"].steps] == [
         (0x2900, 0x5A01), (0x2902, 0x0001), (0x2902, 0x0003), (0x2900, 0x0000)]
     assert [(s.register, s.value) for s in c["mosfet-test"].cleanup] == [(0x2900, 0x0000)]
+    assert [(s.register, s.value) for s in c["normal"].steps] == [(0x2900, 0x0000)]
 
 
 def test_frames_are_byte_for_byte_the_captured_ones():
@@ -63,6 +65,7 @@ def test_frames_are_byte_for_byte_the_captured_ones():
 
     At2.framing = framing
     frames = {label: f for c in DRIVER.controls() for label, f in control_frames(At2, c)}
+    assert dict(control_frames(At2, by_key()["normal"]))["Normal mode (the BMS drives the MOSFETs)"] == cap["normal"][0]
     assert frames["Restart"] == cap["restart"][0]
     assert frames["Standby sleep"] == cap["standby"][0]
     assert frames["Tooling mode (both MOSFETs off)"] == cap["tooling"][0]
@@ -138,8 +141,42 @@ def test_a_pack_that_never_comes_back_is_not_confirmed():
 def test_standby_is_confirmed_by_its_ack_and_reports_the_status():
     sim, dev = jbd()
     res = run_control(dev, by_key()["standby"])
-    assert res.ok and "Standby" in res.results[0].detail
+    assert res.ok and res.results[0].detail == "acked; the pack reports Idle"
     assert sim.writes == [(0x2908, [0xA501])]
+
+
+def test_standby_waits_for_a_pack_that_falls_asleep():
+    sim, dev = jbd()
+    sim.sleep_s = 0.1
+    res = run_control(dev, by_key()["standby"])
+    assert res.ok and "went quiet (asleep), answered again after" in res.results[0].detail
+    assert res.results[0].detail.endswith("reports Idle")
+
+
+def test_standby_reports_a_pack_still_asleep():
+    sim, dev = jbd()
+    sim.sleep_s = None
+    res = run_control(dev, by_key()["standby"])
+    assert res.ok and "has not answered for" in res.results[0].detail
+
+
+def test_normal_mode_takes_a_pack_out_of_tooling():
+    sim, dev = jbd()
+    dev.read_block()
+    dev.send_control(by_key()["mosfet-test"].steps[0])  # Tooling: both MOSFETs off
+    assert not dev.read_live().discharge_allowed
+    res = run_control(dev, by_key()["normal"])
+    assert res.ok and res.results[0].detail == "debug mode reads normal; MOSFETs read charge on, discharge on"
+    assert sim.writes[-1] == (0x2900, [0])
+
+
+def test_normal_mode_not_applied_is_not_confirmed():
+    sim, dev = jbd()
+    dev.read_block()
+    dev.send_control(by_key()["mosfet-test"].steps[0])
+    sim.ignore = {0x2900}
+    res = run_control(dev, by_key()["normal"])
+    assert res.results[0].status == NOT_CONFIRMED and "debug mode reads 0x5A01" in res.results[0].detail
 
 
 def test_standby_without_an_ack_is_unverified():

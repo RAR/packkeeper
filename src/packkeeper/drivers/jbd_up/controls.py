@@ -24,6 +24,7 @@ RESTART = 0x4A4A
 MOS_WAIT_S = 3.0  # for the live MOSFET bits to show a step
 QUIET_WAIT_S = 5.0  # for a restarting pack to stop answering
 BACK_WAIT_S = 30.0  # for it to answer again
+SLEEP_WAIT_S = 10.0  # for a pack that fell asleep (at 0 A) to answer again
 POLL_S = 0.25
 
 
@@ -58,6 +59,17 @@ def normal_mode(device, acked: bool) -> Check:
     return Check(True, f"{c.detail}; debug mode reads normal")
 
 
+def mode_reads_normal(device, acked: bool) -> Check:
+    """Normal mode on its own: the mode reads 0. The BMS drives the MOSFETs again, and a protection may
+    hold one off, so their state is only reported."""
+    mode = device.read_area(R.DEBUG, retries=1)[0]
+    live = device.read_live(retries=1)
+    seen = f"MOSFETs read {_onoff(live.charge_allowed, live.discharge_allowed)}"
+    if mode != NORMAL:
+        return Check(False, f"debug mode reads 0x{mode:04X}, expected normal (0); {seen}")
+    return Check(True, f"debug mode reads normal; {seen}")
+
+
 def restarted(device, acked: bool) -> Check:
     """The pack stops answering, then answers the version read again."""
     end = time.monotonic() + QUIET_WAIT_S
@@ -81,8 +93,23 @@ def restarted(device, acked: bool) -> Check:
 
 
 def standby(device, acked: bool) -> Check:
-    status = device.read_live(retries=1).status_text
-    return Check(True if acked else None, f"{'acked' if acked else 'no ack'}; the pack reports {status}")
+    """Reports the status. At 0 A the pack stopped answering after the ack (2026-10-24): that is the
+    sleep, so wait up to SLEEP_WAIT_S for it to answer again."""
+    ok, ack = (True if acked else None), ("acked" if acked else "no ack")
+    start, quiet = time.monotonic(), False
+    while True:
+        try:
+            status = device.read_live(retries=1).status_text
+            break
+        except (NoReply, FrameError):
+            quiet = True
+        if time.monotonic() - start >= SLEEP_WAIT_S:
+            return Check(ok, f"{ack}; the pack went quiet (asleep) and has not answered for {SLEEP_WAIT_S:.0f} s")
+        time.sleep(POLL_S)
+    if quiet:
+        waited = time.monotonic() - start
+        return Check(ok, f"{ack}; the pack went quiet (asleep), answered again after {waited:.1f} s and reports {status}")
+    return Check(ok, f"{ack}; the pack reports {status}")
 
 
 NORMAL_STEP = Step("Normal mode (the BMS drives the MOSFETs)", REG_MODE, NORMAL, normal_mode)
@@ -95,7 +122,8 @@ CONTROLS = (
     ),
     Control(
         "standby", "Standby sleep",
-        "Puts the BMS into standby sleep. Under load it reported Standby for about 2 s and kept its MOSFETs on.",
+        "Puts the BMS into standby sleep. Under load it kept answering and kept its MOSFETs on; "
+        "at 0 A it stopped answering until it woke.",
         steps=(Step("Standby sleep", REG_SLEEP, STANDBY, standby),),
         danger="Without a load the pack may stop supplying power until it wakes.",
         typed_word="standby",
@@ -114,5 +142,11 @@ CONTROLS = (
         "the stack loses this pack briefly. Best with little or no load.",
         typed_word="test",
         cleanup=(NORMAL_STEP,),
+    ),
+    Control(
+        "normal", "Normal mode",
+        "Takes the BMS out of Tooling mode so it drives its MOSFETs again, e.g. if the stock app left it "
+        "there. Harmless if it is already in Normal mode.",
+        steps=(Step("Normal mode (the BMS drives the MOSFETs)", REG_MODE, NORMAL, mode_reads_normal),),
     ),
 )

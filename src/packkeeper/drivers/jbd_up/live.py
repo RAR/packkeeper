@@ -19,7 +19,7 @@ ALARM_BITS = [
     "RTC fault", "battery full",
 ]
 IO_BITS = ["discharge MOSFET", "charge MOSFET", "precharge", "heater", "fan", "dry contact 1", "dry contact 2", "current limiter"]
-STATES = {0: "Standby", 1: "Charging", 2: "Discharging"}
+STATES = {0: "Idle", 1: "Charging", 2: "Discharging"}  # as the stock app names them
 
 
 def _names(names: list[str]) -> dict[int, str]:

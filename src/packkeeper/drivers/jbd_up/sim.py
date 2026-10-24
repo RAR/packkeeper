@@ -119,6 +119,7 @@ class FakeJbd:
         self.writes: list[tuple[int, list[int]]] = []
         self.sends = dict(SENDS)
         self.restart_s: float | None = 1.5  # silent this long after a restart; None: never answers again; 0: never quiet
+        self.sleep_s: float | None = 0.0  # silent this long after standby (the real pack at 0 A); None: never wakes
         self.ignore: set[int] = set()  # registers whose writes are acked but not applied
         self.stuck_mosfets = False  # Tooling mode leaves the MOSFETs on
         self._silent_until: float | None = 0.0
@@ -150,6 +151,8 @@ class FakeJbd:
         elif register == C.REG_SLEEP and value == C.STANDBY:
             self.mem[register] = 0
             self._standby_reads = 2
+            if self.sleep_s != 0:
+                self._silent_until = None if self.sleep_s is None else time.monotonic() + self.sleep_s
         elif register == C.REG_RESTART and value == C.RESTART:
             self.mem[register] = 0
             self._silent_until = None if self.restart_s is None else time.monotonic() + self.restart_s
@@ -168,7 +171,7 @@ class FakeJbd:
 
     def transact(self, request: bytes) -> bytes:
         if self._silent_until is None or time.monotonic() < self._silent_until:
-            raise NoReply("simulated pack is restarting")
+            raise NoReply("simulated pack is restarting or asleep")
         if not crc_ok(request) or request[0] != self.address:
             raise NoReply("simulated pack did not answer")
         addr, fn, start, end, n = struct.unpack(">BBHHH", request[:8])
