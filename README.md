@@ -75,6 +75,9 @@ Open **PackKeeper**, pick the adapter's port and click **Connect**.
     and a per-write result.
 - **Clock:** sets the BMS clock to the computer's time, confirmed by
   reading it back.
+- **Controls** (ECO-WORTHY / JBD-UP): restart, standby sleep and a MOSFET
+  test, each checked by reading the pack. The MOSFET test has a **Stop**
+  button that goes back to Normal mode.
 - **Log:** every frame sent and received (hex) and every result. Session logs
   and the pre-write backups go to `Documents/PackKeeper/`. (Before the app was
   renamed they went to `Documents/EG4 BMS Tool/`, which is left as it was.)
@@ -95,6 +98,7 @@ packkeeper restore pack1.json [--skip k1,k2]  write a backup back
 packkeeper restore --profile eg4-shipped      restore EG4's shipped values
 packkeeper copy                               read one pack, swap, write it to another
 packkeeper clock [--now | --set '...']        show or set the BMS clock
+packkeeper control [NAME]                     list or run a live control (ECO-WORTHY / JBD-UP)
 packkeeper find                               list the addresses that answer (reads only)
 packkeeper probe                              try a list of reads, report each (reads only)
 packkeeper listen [--baud N] [--seconds S]    decode every frame on the line; never sends
@@ -190,6 +194,22 @@ anti-theft bits, inverter protocols, CAN baud) are hidden unless you tick
 **Show unsafe settings** or pass `--unsafe`, and each write of one is confirmed
 by typing `unsafe`. Restore defaults, factory reset and calibration are not in
 this tool.
+
+**Controls** (`packkeeper control --bms jbd-up`, or the **Controls** tab):
+restart, standby sleep and a MOSFET test. Each one sends frames captured from
+JBD's own app, never computed ones, and checks the result by reading the pack:
+
+- **Restart**: the pack must go quiet and then answer again within 30 s.
+- **Standby sleep** (type `standby`): confirmed by its ack; the pack's status
+  is shown after.
+- **MOSFET test** (type `test`): Tooling mode (both MOSFETs off), charge on,
+  both on, then back to Normal, each step checked against the live MOSFET bits.
+  If a step fails, or you stop it or press Ctrl-C, it goes back to Normal mode
+  and checks that. The pack's output is cut for a few seconds, so run it with
+  little or no load.
+
+`--dry-run` shows the frames and sends nothing. Nothing is sent while writes
+are off.
 
 ## Safe ranges and rules
 

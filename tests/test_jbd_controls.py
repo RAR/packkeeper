@@ -147,3 +147,54 @@ def test_writes_off_sends_no_control():
     with pytest.raises(PackError, match="writes are off"):
         run_control(dev, by_key()["restart"])
     assert sim.writes == []
+
+
+def control_tx(tmp_path) -> list[str]:
+    return [line for log in tmp_path.glob("*.log") for line in log.read_text().splitlines()
+            if " TX " in line and " 79 29 " in line]
+
+
+def test_cli_lists_the_controls(capsys):
+    from packkeeper.cli import main
+
+    assert main(["control", "--bms", "jbd-up"]) == 0
+    out = capsys.readouterr().out
+    assert "restart" in out and "standby" in out and "mosfet-test" in out
+
+
+def test_cli_dry_run_shows_the_frames_and_sends_nothing(tmp_path, capsys):
+    from packkeeper.cli import main
+
+    assert main(["control", "--bms", "jbd-up", "--simulate", "--dry-run", "--log-dir", str(tmp_path),
+                 "mosfet-test"]) == 0
+    out = capsys.readouterr().out
+    assert "00 79 29 00 29 02 00 06 11 4A 42 44 5A 01" in out and "Dry run: nothing sent." in out
+    assert "only if stopped or a step fails" in out
+    assert control_tx(tmp_path) == []
+
+
+def test_cli_needs_the_typed_word(tmp_path, capsys, monkeypatch):
+    from packkeeper.cli import main
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": "yes")
+    assert main(["control", "--bms", "jbd-up", "--simulate", "--log-dir", str(tmp_path), "mosfet-test"]) == 2
+    assert "Nothing was sent." in capsys.readouterr().out and control_tx(tmp_path) == []
+
+
+def test_cli_runs_the_mosfet_test(tmp_path, capsys, monkeypatch):
+    from packkeeper.cli import main
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": "test")
+    assert main(["control", "--bms", "jbd-up", "--simulate", "--log-dir", str(tmp_path), "mosfet-test"]) == 0
+    out = capsys.readouterr().out
+    assert out.count("confirmed") >= 4 and "Control confirmed." in out
+    assert len(control_tx(tmp_path)) == 4
+
+
+def test_cli_unknown_control_and_bms_without_controls(capsys):
+    from packkeeper.cli import main
+
+    assert main(["control", "--bms", "jbd-up", "--simulate", "nope"]) == 2
+    assert "unknown control 'nope'" in capsys.readouterr().err
+    assert main(["control"]) == 2
+    assert "has no controls" in capsys.readouterr().err

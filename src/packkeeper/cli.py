@@ -12,13 +12,14 @@ from pathlib import Path
 
 from . import __version__, backup, drivers
 from .block import BlankBlockError, Block, DriverMismatch
+from .controls import control_frames
 from .device import BROADCAST_WARNING, ModbusDevice, PackError
 from .errors import FrameError
 from .find import scan
 from .probe import run as run_probes
 from .modbus import ModbusError
 from .planner import Plan, identity_warnings, make_plan, targets_from_block
-from .service import NOT_ATTEMPTED, UNVERIFIED, StaleError, apply_plan, diff_blocks, set_clock
+from .service import NOT_ATTEMPTED, UNVERIFIED, StaleError, apply_plan, diff_blocks, run_control, set_clock
 from .session import SessionLog, default_log_path
 from .settings import SettingError, SettingTable
 from .transport import NoReply, guess_port, list_ports
@@ -129,6 +130,11 @@ def build_parser() -> argparse.ArgumentParser:
     g.add_argument("--set", metavar="'YYYY-MM-DD HH:MM:SS'", help="set it to this time")
     s.add_argument("--utc", action="store_true", help="with --now: use UTC instead of local time")
     s.set_defaults(func=cmd_clock)
+
+    s = sub.add_parser("control", parents=[common, write],
+                       help="list or run a live control (restart, standby, MOSFET test)")
+    s.add_argument("name", nargs="?", help="the control to run; leave out to list them")
+    s.set_defaults(func=cmd_control)
 
     s = sub.add_parser("find", parents=[common], help="list the addresses that answer (reads only)")
     s.set_defaults(func=cmd_find)
@@ -572,6 +578,55 @@ def cmd_clock(args) -> int:
     res = set_clock(pack, target)
     print(f"Pack now reports {res.after}: {'confirmed' if res.ok else 'NOT applied'}")
     return 0 if res.ok else 1
+
+
+def cmd_control(args) -> int:
+    driver = driver_of(args)
+    controls = {c.key: c for c in driver.controls()}
+    if not controls:
+        raise CliError(f"the {driver.label} has no controls")
+    if args.name is None:
+        for c in controls.values():
+            print(f"{c.key:12s} {c.label}: {c.summary}")
+            if c.danger:
+                print(f"{'':12s} {c.danger}")
+        return 0
+    control = controls.get(args.name)
+    if control is None:
+        raise CliError(f"unknown control '{args.name}' (known: {', '.join(controls)})")
+    pack = open_pack(args)
+    pack.read_block()
+    print(f"{control.label}: {control.summary}")
+    if control.danger:
+        print(f"WARNING: {control.danger}")
+    frames = control_frames(pack, control)
+    print("\nFrames, in order:")
+    for label, frame in frames:
+        print(f"  {frame.hex(' ').upper()}   {label}")
+    if args.dry_run:
+        for label, frame in frames:
+            pack.log.info(f"dry run frame {frame.hex(' ').upper()}  {label}")
+        print("\nDry run: nothing sent.")
+        return 0
+    if pack.write_refusal:
+        raise PackError(f"writes are off: {pack.write_refusal}. Nothing was sent.")
+    word = control.typed_word or "yes"
+    try:
+        answer = input(f"\nType '{word}' to send it: ")
+    except EOFError:
+        answer = ""
+    if answer.strip().lower() != word:
+        print("Nothing was sent.")
+        pack.log.info(f"control {control.key}: not confirmed; nothing sent")
+        return 2
+    pack.log.info(f"control {control.key} confirmed by user")
+    print()
+    res = run_control(pack, control, lambda r: print(f"  {r.describe()}"))
+    if res.ok:
+        print("\nControl confirmed.")
+        return 0
+    print(f"\nNOT confirmed: {res.stopped}\nSee the log: {pack.log.path}")
+    return 1
 
 
 def cmd_live(args) -> int:
