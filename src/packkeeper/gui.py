@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from . import __version__, backup, drivers, qtcommon, settings_view
+from . import __version__, backup, controls_view, drivers, qtcommon, settings_view
 from .block import Block
 from .device import BROADCAST_WARNING, ModbusDevice
 from .find import scan
@@ -567,6 +567,7 @@ class MainWindow(QMainWindow):
         self.live = LiveTab()
         self.settings = settings_view.SettingsTab(self, self.driver)
         self.clock = ClockTab(self)
+        self.controls = controls_view.ControlsTab(self)
         logw = QWidget()
         ll = QVBoxLayout(logw)
         self.log_view = QPlainTextEdit()
@@ -586,6 +587,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.live, "Live")
         self.tabs.addTab(self.settings, "Settings")
         self.tabs.addTab(self.clock, "Clock")
+        self.tabs.addTab(self.controls, "Controls")
         self.tabs.addTab(logw, "Log")
         lay.addWidget(self.tabs, 1)
         self.driver_changed()
@@ -633,6 +635,8 @@ class MainWindow(QMainWindow):
             self.address.setRange(choices.start, choices.stop - 1)
             self.address.setValue(d.address)
         self.tabs.setTabVisible(self.tabs.indexOf(self.clock), d.supports_clock)
+        self.tabs.setTabVisible(self.tabs.indexOf(self.controls), bool(d.controls()))
+        self.controls.set_driver(d)
         if self.settings.driver is not d:
             self.install_settings(d)
 
@@ -671,7 +675,7 @@ class MainWindow(QMainWindow):
 
     def on_busy(self, busy: bool):
         # Disconnect stays available while a read waits on a silent port.
-        self.connect_btn.setEnabled(not busy or self.pack is not None)
+        self.connect_btn.setEnabled((not busy or self.pack is not None) and self.controls.running is None)
         # A result still in flight after a disconnect belongs to that BMS type.
         self.bms.setEnabled(not busy and self.pack is None)
         self.settings.read_btn.setEnabled(not busy and self.pack is not None)
@@ -679,6 +683,7 @@ class MainWindow(QMainWindow):
             QGuiApplication.setOverrideCursor(Qt.CursorShape.BusyCursor)
         else:
             QGuiApplication.restoreOverrideCursor()
+        self.controls.update_enabled()
 
     def refresh_ports(self):
         current = self.ports.currentText()
@@ -702,6 +707,7 @@ class MainWindow(QMainWindow):
         self.refresh_btn.setEnabled(not on)
         self.settings.read_btn.setEnabled(on)
         self.clock.set_btn.setEnabled(False)
+        self.controls.update_enabled()
         if not on:
             self.identity.setText("Not connected")
             self.identity.setToolTip("")
@@ -800,6 +806,9 @@ class MainWindow(QMainWindow):
             self.status(f"Address set to {self.address.value()}.")
 
     def disconnect_pack(self):
+        if self.controls.running is not None:
+            self.status("A control is running: wait for it to finish, or click Stop.", error=True)
+            return
         pack = self.pack
         self.pack = None
         if pack is not None:
@@ -813,6 +822,11 @@ class MainWindow(QMainWindow):
             pack.log.info("disconnected")
         self.set_connected(False)
         self.status("Disconnected.")
+
+    def control_running_changed(self):
+        running = self.controls.running is not None
+        self.connect_btn.setEnabled(not running and (not self.worker.busy or self.pack is not None))
+        self.controls.update_enabled()
 
     def read_settings(self):
         if self.pack is None:
@@ -937,6 +951,7 @@ class MainWindow(QMainWindow):
         self.live_timer.stop()
         self.log_timer.stop()
         # Let a write in progress finish its read-back before the port closes.
+        self.controls.stop.set()  # a running control goes back to Normal before the port closes
         self.worker.shutdown()
         if self.pack is not None:
             self.pack.close()

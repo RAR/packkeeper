@@ -688,3 +688,100 @@ def test_a_setting_the_pack_did_not_send_is_greyed_out_and_never_staged(window):
     tab.stage_all()
     assert tab.staged == {"standby_sleep_current": 20}
     assert "1 setting(s) were not sent by one side" in tab.ref_text.text()
+
+
+def connect_jbd(app, w):
+    w.bms.setCurrentIndex(w.bms.findData("jbd-up"))
+    w.ports.setCurrentIndex(w.ports.findData(gui.SIM_PORT))
+    w.toggle_connect()
+    wait(app, lambda: w.settings.block is not None and w._last_rt is not None)
+
+
+def click_control(app, w, key):
+    """Click a control's button once nothing else holds the worker (a live poll disables the buttons)."""
+    wait(app, lambda: w.controls.buttons[key].isEnabled())
+    w.controls.buttons[key].click()
+
+
+def slow_jbd_bus(monkeypatch, delay=0.03):
+    """Make every simulated request take a little time, so Stop and close land mid-control."""
+    from packkeeper.drivers.jbd_up import sim
+
+    orig = sim.FakeJbdBus.transact
+
+    def slow(self, request):
+        time.sleep(delay)
+        return orig(self, request)
+
+    monkeypatch.setattr(sim.FakeJbdBus, "transact", slow)
+
+
+def test_controls_tab_only_for_a_bms_with_controls(window):
+    app, w = window
+    i = w.tabs.indexOf(w.controls)
+    assert not w.tabs.isTabVisible(i)  # EG4-LL
+    w.bms.setCurrentIndex(w.bms.findData("jk-pb"))
+    assert not w.tabs.isTabVisible(i)
+    w.bms.setCurrentIndex(w.bms.findData("jbd-up"))
+    assert w.tabs.isTabVisible(i) and set(w.controls.buttons) == {"restart", "standby", "mosfet-test"}
+    assert not any(b.isEnabled() for b in w.controls.buttons.values())  # not connected
+
+
+def test_controls_dry_run_sends_nothing(window):
+    app, w = window
+    connect_jbd(app, w)
+    w.controls.dry.setChecked(True)
+    click_control(app, w, "mosfet-test")
+    text = w.controls.steps.text()
+    assert "5A 01" in text and "Nothing was sent" in text
+    assert not [line for line in w.pack.log.lines if " TX " in line and " 79 29 " in line]
+
+
+def test_mosfet_test_runs_and_locks_disconnect(window, monkeypatch):
+    import packkeeper.drivers.jbd_up.controls as JC
+
+    app, w = window
+    monkeypatch.setattr(JC, "POLL_S", 0.01)
+    monkeypatch.setattr(gui.controls_view.QInputDialog, "getText", lambda *a, **k: ("test", True))
+    slow_jbd_bus(monkeypatch)
+    connect_jbd(app, w)
+    click_control(app, w, "mosfet-test")
+    wait(app, lambda: w.controls.running is not None)
+    assert not w.connect_btn.isEnabled() and not w.controls.stop_btn.isHidden()
+    w.disconnect_pack()
+    assert w.pack is not None  # refused while a control runs
+    wait(app, lambda: w.controls.running is None, timeout=15)
+    assert "Confirmed." in w.controls.steps.text() and w.connect_btn.isEnabled()
+    assert w.controls.stop_btn.isHidden()
+
+
+def test_stop_goes_back_to_normal(window, monkeypatch):
+    import packkeeper.drivers.jbd_up.controls as JC
+
+    app, w = window
+    monkeypatch.setattr(JC, "POLL_S", 0.01)
+    monkeypatch.setattr(gui.controls_view.QInputDialog, "getText", lambda *a, **k: ("test", True))
+    slow_jbd_bus(monkeypatch)
+    connect_jbd(app, w)
+    w.controls.step_done.connect(lambda r: w.controls.stop_btn.click() if not r.cleanup else None)
+    click_control(app, w, "mosfet-test")
+    wait(app, lambda: w.controls.running is not None)
+    wait(app, lambda: w.controls.running is None, timeout=15)
+    text = w.controls.steps.text()
+    assert "stopped by the user" in text and "cleanup: Normal mode" in text
+    assert w.pack.transport.packs[0].mem[0x2900] == 0
+
+
+def test_closing_mid_control_goes_back_to_normal_first(window, monkeypatch):
+    import packkeeper.drivers.jbd_up.controls as JC
+
+    app, w = window
+    monkeypatch.setattr(JC, "POLL_S", 0.01)
+    monkeypatch.setattr(gui.controls_view.QInputDialog, "getText", lambda *a, **k: ("test", True))
+    slow_jbd_bus(monkeypatch)
+    connect_jbd(app, w)
+    sim = w.pack.transport.packs[0]  # the GUI's simulated port is the FakeJbdBus itself
+    click_control(app, w, "mosfet-test")
+    wait(app, lambda: sim.writes and sim.writes[-1] == (0x2900, [0x5A01]))
+    w.close()
+    assert sim.writes[-1] == (0x2900, [0]) and sim.mem[0x2900] == 0
