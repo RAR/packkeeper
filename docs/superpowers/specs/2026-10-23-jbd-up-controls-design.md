@@ -51,6 +51,29 @@ checks: restart means the pack goes silent and then answers again;
 standby means the I/O bits (0x1020 bits 0 and 1) both read off while the
 pack keeps answering.
 
+### Captured from the stock app (2026-10-24)
+
+Captured on pack 2 (protocol 2.6). The listener was on the eco-charger bridge B's RS485 passthrough, wired in parallel to the stock app's adapter. The capture is
+`~/eco-charger/captures/jbd-controls-20261024-094951.log`, with a mark before and after each click. Each control is a single 0x79 write, and the pack acked every one with an empty reply, except the clock write, whose reply echoes the data.
+The stock app used key 0x11 until it had read the version block, then 0x26. The pack accepted both.
+
+| Stock app control | Write | Seen in live data |
+|---|---|---|
+| Restart | 0x2912 ← `4A 4A` | silent ~1.5 s, then answers |
+| Standby sleep | 0x2908 ← `A5 01` | "Standby" ~2 s; MOSFETs stayed on (0.8 A load). The app then wrote the clock (0x2800). |
+| Normal mode | 0x2900 ← `00 00` | normal |
+| Tooling mode | 0x2900 ← `5A 01` | both MOSFETs off within 1 s, 0 A, "Standby" |
+| MOS control (in Tooling mode; written when the box is ticked) | 0x2902 ← bits in screen order: bit 0 CHG MOS, bit 1 DSG MOS (`00 01`, then `00 03`) | CHG on, then both on |
+| Dry contact 1 on / off | 0x2904 ← `00 01` / `00 00` | live I/O bit 5 set / clear |
+| "Settings" button | one write of 0x2900-0x292B (22 registers), with whatever the page holds, including 0x2908 = `A5 01` | **never copy this** |
+| Debug "Reading" | read 0x2900-0x2910: 7 registers, all 0 | |
+| History | 0x78 to 0x4000-0x4001 *with* 2 data bytes: `00 00` first, `00 01` next; each reply is a 101-byte record, newest first | |
+| WiFi / module pages | read 0x2400-0x2450: 7 registers, all 0 | |
+| Unknown | 0x2914 ← `66 88` (key 0x26), sent when the session ended | the pack answered once more ("Standby"); unexplained |
+
+The live I/O word (0x1020) puts discharge at bit 0 and charge at bit 1. The MOS control register (0x2902) puts charge at bit 0 and discharge at bit 1.
+Still unknown: DV/DP mode, Deep sleep, the other 0x2902 bits (precharge, heater, fan, charge limit), the LEDs, and 0x2914.
+
 ## Finding the missing frames without decompiling
 
 The stock app already knows every frame. Capture its traffic instead of
