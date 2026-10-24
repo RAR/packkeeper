@@ -11,7 +11,7 @@ from ...device import READ_RETRIES
 from ...errors import DeviceRefused, FrameError
 from ...transport import NoReply, SerialParams
 from ..base import Driver
-from . import live, registers as R
+from . import controls as C, live, registers as R
 from .framing import DEFAULT_KEY, JbdFraming
 from .layout import PAGES
 from .table import TABLE
@@ -38,6 +38,7 @@ class JbdUp(Driver):
     no_reply_hint = R.NO_REPLY_HINT
     setup_hint = R.SETUP_HINT
     clock_note = R.CLOCK_NOTE
+    control_registers = C.CONTROL_REGISTERS
 
     _writable = frozenset(TABLE.covering)
 
@@ -93,6 +94,9 @@ class JbdUp(Driver):
         if not any(version) or block.reg(R.REG_PROTOCOL) & 0xFF == 0:
             return [f"the pack reports no protocol version; writes use the default key 0x{DEFAULT_KEY:02X}"]
         return []
+
+    def controls(self):
+        return C.CONTROLS
 
     def clock_write(self, t: datetime) -> tuple[int, list[int]]:
         return R.CLOCK.start, [t.year, t.month, t.day, t.hour, t.minute, t.second]

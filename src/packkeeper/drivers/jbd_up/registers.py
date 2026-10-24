@@ -14,11 +14,15 @@ PACK = Area(0x1C00, 0x44, STRIDE)  # 0x1C00-0x1C86: a real pack sends no fan or 
 CAPACITY = Area(0x2000, 0x20, STRIDE)  # 0x2000-0x2040: through the function bits
 CLOCK = Area(0x2800, 6, STRIDE)  # Y M D h m s
 VERSION = Area(0x2810, 0x16, STRIDE)  # 0x2810-0x283C, all a real pack sends
+DEBUG = Area(0x2900, 7, STRIDE)  # 0x2900-0x290E: the stock app's debug "Reading"; 0x2900 is the debug mode
 AREAS = (PROTECTION, PACK, CAPACITY, CLOCK, VERSION)
 # The end address each block read names: the stock app's ranges, so the pack sees the requests it knows.
-REQUEST_ENDS = {0x1000: 0x10A0, 0x1800: 0x1900, 0x1C00: 0x1CA0, 0x2000: 0x2050, 0x2800: 0x280F, 0x2810: 0x2840}
+REQUEST_ENDS = {0x1000: 0x10A0, 0x1800: 0x1900, 0x1C00: 0x1CA0, 0x2000: 0x2050, 0x2800: 0x280F, 0x2810: 0x2840,
+                0x2900: 0x2910}
 
 REG_SIGNALS = 0x1022  # live signal word; bit 15 = large-capacity mode
+REG_STATE = 0x1014  # live status: 0 standby, 1 charging, 2 discharging
+REG_IO = 0x1020  # live I/O: bit 0 discharge MOSFET, bit 1 charge MOSFET
 LARGE_CAPACITY = 1 << 15
 REG_HW_VER, REG_APP_MAJOR, REG_APP_MINOR, REG_PROTOCOL = 0x2812, 0x2814, 0x2816, 0x281A
 REG_HW_NAME, REG_PROJECT = 0x281C, 0x282C  # 16 B ASCII each

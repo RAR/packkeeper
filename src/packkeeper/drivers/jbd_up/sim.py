@@ -5,12 +5,13 @@ from __future__ import annotations
 
 import json
 import struct
+import time
 from datetime import datetime
 from pathlib import Path
 
 from ...modbus import crc_ok, with_crc
 from ...transport import NoReply
-from . import registers as R
+from . import controls as C, registers as R
 from .framing import FN_READ, FN_WRITE
 
 
@@ -56,7 +57,7 @@ TEXTS = {0x281C: ("JBD-UP16S010", 16), 0x282C: ("ECOWORTHY48V", 16)}
 CLOCK = datetime(2026, 10, 23, 8, 0, 0)
 DEFAULT_FLOORS = {0x1C06: 20}  # keeps the old balance delta below 0.020 V, like a pack might
 # Where a block read ends, whatever end the request names: the lengths a real pack sent.
-SENDS = {0x1000: 0x10A2, 0x1800: 0x18D0, 0x1C00: 0x1C88, 0x2810: 0x283C}
+SENDS = {0x1000: 0x10A2, 0x1800: 0x18D0, 0x1C00: 0x1C88, 0x2810: 0x283C, 0x2900: 0x290E}
 
 
 def _text(s: str, nbytes: int) -> list[int]:
@@ -117,6 +118,12 @@ class FakeJbd:
         self.floors = DEFAULT_FLOORS if floors is None else floors
         self.writes: list[tuple[int, list[int]]] = []
         self.sends = dict(SENDS)
+        self.restart_s: float | None = 1.5  # silent this long after a restart; None: never answers again; 0: never quiet
+        self.ignore: set[int] = set()  # registers whose writes are acked but not applied
+        self.stuck_mosfets = False  # Tooling mode leaves the MOSFETs on
+        self._silent_until: float | None = 0.0
+        self._standby_reads = 0
+        self._status = self.mem[R.REG_STATE]
         self.blank = False
         self.state_file = state_file
         self._clock_base: tuple[datetime, datetime] | None = None
@@ -136,12 +143,39 @@ class FakeJbd:
             set_at, base = self._clock_base
             self._set_clock(base + (datetime.now() - set_at))
 
+    def _control(self, register: int, value: int) -> None:
+        """What the captured controls did to a real pack (2026-10-24)."""
+        if register == C.REG_MODE and value == C.TOOLING:
+            self.mem[C.REG_MOS] = 0  # entering Tooling switched both MOSFETs off
+        elif register == C.REG_SLEEP and value == C.STANDBY:
+            self.mem[register] = 0
+            self._standby_reads = 2
+        elif register == C.REG_RESTART and value == C.RESTART:
+            self.mem[register] = 0
+            self._silent_until = None if self.restart_s is None else time.monotonic() + self.restart_s
+
+    def _live_state(self) -> None:
+        """The live I/O and status words, from the mode the controls left the pack in."""
+        io = self.mem.get(R.REG_IO, 0) & ~0b11
+        if self.mem.get(C.REG_MODE, 0) == C.TOOLING and not self.stuck_mosfets:
+            mos = self.mem.get(C.REG_MOS, 0)
+            io |= (0b10 if mos & 1 else 0) | (0b01 if mos & 2 else 0)
+        else:
+            io |= 0b11
+        self.mem[R.REG_IO] = io
+        self.mem[R.REG_STATE] = 0 if not io & 0b01 or self._standby_reads else self._status
+        self._standby_reads = max(0, self._standby_reads - 1)
+
     def transact(self, request: bytes) -> bytes:
+        if self._silent_until is None or time.monotonic() < self._silent_until:
+            raise NoReply("simulated pack is restarting")
         if not crc_ok(request) or request[0] != self.address:
             raise NoReply("simulated pack did not answer")
         addr, fn, start, end, n = struct.unpack(">BBHHH", request[:8])
         if fn == FN_READ:
             self._clock_now()
+            if start == R.LIVE.start:
+                self._live_state()
             end = self.sends.get(start, end)
             words = [0 if self.blank and R.PROTECTION.start <= a < 0x1900 else self.word(a) for a in range(start, end, 2)]
             data = b"".join(struct.pack(">H", w) for w in words)
@@ -152,6 +186,8 @@ class FakeJbd:
                 raise NoReply("simulated pack ignored a write with the wrong key")
             values = [struct.unpack(">H", body[4 + i : 6 + i])[0] for i in range(0, n - 4, 2)]
             self.writes.append((start, values))
+            if start in self.ignore:
+                return with_crc(struct.pack(">BBHHH", addr, fn, start, end, 0))  # acked, not applied
             for i, v in enumerate(values):
                 reg = start + 2 * i
                 if reg in self.floors and v < self.floors[reg]:
@@ -159,6 +195,7 @@ class FakeJbd:
                 self.mem[reg] = v
             if start == R.CLOCK.start:
                 self._clock_base = (datetime.now(), datetime(*values[:6]))
+            self._control(start, values[0])
             self._save()
             return with_crc(struct.pack(">BBHHH", addr, fn, start, end, 0))
         raise NoReply("simulated pack ignored an unknown function")
