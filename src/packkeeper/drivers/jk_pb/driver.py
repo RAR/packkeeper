@@ -16,10 +16,14 @@ from . import live, registers as R
 from .layout import PAGES
 from .table import build_table
 
+# Bits 10-15 as esphome-jk-bms names them (jk_bms_ble.cpp, "JK-PB2A16S-20P v14"). A real PB2A16S20P
+# (v15) read 0x3000 here (2026-11-26): bits 12 and 13, the two extra discharge OCP stages.
 FEATURES = {
     1 << 0: "heating", 1 << 1: "temperature sensor disabled", 1 << 2: "GPS heartbeat", 1 << 3: "port RS485",
     1 << 4: "LCD always on", 1 << 5: "special charger", 1 << 6: "smart sleep", 1 << 7: "parallel limit off",
-    1 << 8: "timed data storage", 1 << 9: "charging float mode",
+    1 << 8: "timed data storage", 1 << 9: "charging float mode", 1 << 10: "button triggers emergency",
+    1 << 11: "dry contact alarm intermittent", 1 << 12: "discharge OCP II", 1 << 13: "discharge OCP III",
+    1 << 14: "GPS locked charging", 1 << 15: "GPS locked discharging",
 }
 
 
@@ -164,7 +168,7 @@ class JkPB(Driver):
             ("Switches", f"charge {on(u32(0x70))}, discharge {on(u32(0x74))}, balancer {on(u32(0x78))}"),
             ("Address", str(u32(0x108))),
             ("Pre-charge", f"{u32(0x10C)} s"),
-            ("Features", ", ".join(features) or "none"),
+            ("Features", f"{', '.join(features) or 'none'} (0x{bits:04X})"),
             ("Sleep time", f"{block.reg(self._a(R.SETTINGS, 0x118)) >> 8} h"),
         ]
 

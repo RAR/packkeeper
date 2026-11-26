@@ -42,6 +42,14 @@ def test_read_decodes_settings_identity_clock_and_info():
     assert JK.identity_warnings(b) == []
     info = dict(JK.info_lines(b))
     assert info["Cells"] == "16" and info["Address"] == "1" and "balancer on" in info["Switches"]
+    assert info["Features"] == "LCD always on (0x0010)" and info["Sleep time"] == "24 h"
+
+
+def test_info_names_the_high_feature_bits():
+    sim, dev = jk()
+    sim.image[registers.addr(registers.SETTINGS, 0x114, 2)] = 0x3000  # what a real v15 pack read (2026-11-26)
+    info = dict(JK.info_lines(dev.read_block()))
+    assert info["Features"] == "discharge OCP II, discharge OCP III (0x3000)"
 
 
 def test_live_decode():
