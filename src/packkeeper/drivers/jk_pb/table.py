@@ -18,7 +18,8 @@ AH = ("Ah", 0.001, 3)
 
 # key: (byte offset, (unit, multiplier, decimals), signed, (min, max, step), group, label)
 FIELDS = {
-    "smart_sleep_voltage": (0x00, V, False, (2.5, 3.4, 0.001), "Shutdown", "Smart sleep voltage"),
+    # a real PB2A16S20P (v15) held 3.500 V (2026-11-26)
+    "smart_sleep_voltage": (0x00, V, False, (2.5, 3.6, 0.001), "Shutdown", "Smart sleep voltage"),
     "cell_uv_protection": (0x04, V, False, (2.5, 3.1, 0.001), "Cell voltage", "Cell UV protection"),
     "cell_uv_release": (0x08, V, False, (2.6, 3.2, 0.001), "Cell voltage", "Cell UV release"),
     "cell_ov_protection": (0x0C, V, False, (3.45, 3.65, 0.001), "Cell voltage", "Cell OV protection"),
