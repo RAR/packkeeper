@@ -160,6 +160,23 @@ def test_standby_reports_a_pack_still_asleep():
     assert res.ok and "has not answered for" in res.results[0].detail
 
 
+def test_standby_without_an_ack_is_confirmed_by_the_pack_going_quiet_and_back():
+    sim, dev = jbd()
+    sim.sleep_s, sim.standby_acks = 0.1, False  # the real pack under load, 2026-11-26
+    res = run_control(dev, by_key()["standby"])
+    assert res.ok and res.results[0].status == CONFIRMED
+    detail = res.results[0].detail
+    assert detail.startswith("no ack; the pack went quiet (asleep), answered again after")
+    assert detail.count("no ack") == 1
+
+
+def test_standby_without_an_ack_or_a_sleep_is_unverified():
+    sim, dev = jbd()
+    sim.standby_acks = False
+    res = run_control(dev, by_key()["standby"])
+    assert res.results[0].status == UNVERIFIED and res.results[0].detail == "no ack; the pack reports Idle"
+
+
 def test_normal_mode_takes_a_pack_out_of_tooling():
     sim, dev = jbd()
     dev.read_block()

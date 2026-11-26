@@ -119,7 +119,8 @@ class FakeJbd:
         self.writes: list[tuple[int, list[int]]] = []
         self.sends = dict(SENDS)
         self.restart_s: float | None = 1.5  # silent this long after a restart; None: never answers again; 0: never quiet
-        self.sleep_s: float | None = 0.0  # silent this long after standby (the real pack at 0 A); None: never wakes
+        self.sleep_s: float | None = 0.0  # silent this long after standby; None: never wakes
+        self.standby_acks = True  # False: falls asleep before acking standby (the real pack under load, 2026-11-26)
         self.ignore: set[int] = set()  # registers whose writes are acked but not applied
         self.stuck_mosfets = False  # Tooling mode leaves the MOSFETs on
         self._silent_until: float | None = 0.0
@@ -200,6 +201,8 @@ class FakeJbd:
                 self._clock_base = (datetime.now(), datetime(*values[:6]))
             self._control(start, values[0])
             self._save()
+            if start == C.REG_SLEEP and not self.standby_acks:
+                raise NoReply("simulated pack fell asleep before acking")
             return with_crc(struct.pack(">BBHHH", addr, fn, start, end, 0))
         raise NoReply("simulated pack ignored an unknown function")
 

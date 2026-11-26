@@ -365,4 +365,5 @@ def _send_step(pack: Device, step: C.Step, cleanup: bool = False) -> C.StepResul
     except (NoReply, FrameError, DeviceRefused, MissingRegister) as e:
         check = C.Check(None, f"the read-back failed: {e}")
     status = C.CONFIRMED if check.ok else C.UNVERIFIED if check.ok is None else C.NOT_CONFIRMED
-    return C.StepResult(step, status, check.detail + ("" if acked else " (no ack)"), cleanup)
+    detail = check.detail if acked or "no ack" in check.detail else check.detail + " (no ack)"
+    return C.StepResult(step, status, detail, cleanup)

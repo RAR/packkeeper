@@ -24,7 +24,7 @@ RESTART = 0x4A4A
 MOS_WAIT_S = 3.0  # for the live MOSFET bits to show a step
 QUIET_WAIT_S = 5.0  # for a restarting pack to stop answering
 BACK_WAIT_S = 30.0  # for it to answer again
-SLEEP_WAIT_S = 10.0  # for a pack that fell asleep (at 0 A) to answer again
+SLEEP_WAIT_S = 10.0  # for a pack that fell asleep to answer again
 POLL_S = 0.25
 
 
@@ -93,9 +93,11 @@ def restarted(device, acked: bool) -> Check:
 
 
 def standby(device, acked: bool) -> Check:
-    """Reports the status. At 0 A the pack stopped answering after the ack (2026-10-24): that is the
-    sleep, so wait up to SLEEP_WAIT_S for it to answer again."""
-    ok, ack = (True if acked else None), ("acked" if acked else "no ack")
+    """Reports the status. The pack stops answering while it sleeps, so wait up to SLEEP_WAIT_S for it
+    to answer again. At 0 A it acked first (2026-10-24); under load it went quiet without an ack and
+    answered again 2-3 s later (2026-11-26), so going quiet and coming back also confirms it, as for a
+    restart."""
+    ack = "acked" if acked else "no ack"
     start, quiet = time.monotonic(), False
     while True:
         try:
@@ -104,12 +106,13 @@ def standby(device, acked: bool) -> Check:
         except (NoReply, FrameError):
             quiet = True
         if time.monotonic() - start >= SLEEP_WAIT_S:
-            return Check(ok, f"{ack}; the pack went quiet (asleep) and has not answered for {SLEEP_WAIT_S:.0f} s")
+            return Check(True if acked else None,
+                         f"{ack}; the pack went quiet (asleep) and has not answered for {SLEEP_WAIT_S:.0f} s")
         time.sleep(POLL_S)
     if quiet:
         waited = time.monotonic() - start
-        return Check(ok, f"{ack}; the pack went quiet (asleep), answered again after {waited:.1f} s and reports {status}")
-    return Check(ok, f"{ack}; the pack reports {status}")
+        return Check(True, f"{ack}; the pack went quiet (asleep), answered again after {waited:.1f} s and reports {status}")
+    return Check(True if acked else None, f"{ack}; the pack reports {status}")
 
 
 NORMAL_STEP = Step("Normal mode (the BMS drives the MOSFETs)", REG_MODE, NORMAL, normal_mode)
@@ -122,10 +125,10 @@ CONTROLS = (
     ),
     Control(
         "standby", "Standby sleep",
-        "Puts the BMS into standby sleep. Under load it kept answering and kept its MOSFETs on; "
-        "at 0 A it stopped answering until it woke.",
+        "Puts the BMS into standby sleep. It stops answering while it sleeps, under load too, "
+        "then answers again by itself (after 2-3 s under load).",
         steps=(Step("Standby sleep", REG_SLEEP, STANDBY, standby),),
-        danger="Without a load the pack may stop supplying power until it wakes.",
+        danger="The pack read 0 A when it woke, even under load: it may stop supplying power until it wakes.",
         typed_word="standby",
     ),
     Control(

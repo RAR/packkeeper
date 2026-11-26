@@ -200,9 +200,12 @@ restart, standby sleep, a MOSFET test and Normal mode. Each one sends frames cap
 JBD's own app, never computed ones, and checks the result by reading the pack:
 
 - **Restart**: the pack must go quiet and then answer again within 30 s.
-- **Standby sleep** (type `standby`): confirmed by its ack; the pack's status
-  is shown after. At 0 A the pack stops answering while it sleeps, so the
-  check waits up to 10 s for it to answer again and says how long it took.
+- **Standby sleep** (type `standby`): the pack stops answering while it
+  sleeps, under load too, so the check waits up to 10 s for it to answer
+  again and says how long it took (2-3 s under load). Confirmed by its ack, or
+  without one by the pack going quiet and coming back, as for a restart; the
+  pack's status is shown after. It read 0 A when it woke, even under load, so
+  it may stop supplying power for those seconds.
 - **MOSFET test** (type `test`): Tooling mode (both MOSFETs off), charge on,
   both on, then back to Normal, each step checked against the live MOSFET bits.
   If a step fails, or you stop it or press Ctrl-C, it goes back to Normal mode
