@@ -25,6 +25,9 @@ FEATURES = {
 
 class JkFraming(ModbusFraming):
     max_read = R.MAX_READ
+    # A real PB2A16S20P (v15, 2026-11-26) ignored most requests sent the moment its last reply ended,
+    # and answered every one sent 50 ms or more after it.
+    request_gap = 0.1
 
 
 class JkPB(Driver):

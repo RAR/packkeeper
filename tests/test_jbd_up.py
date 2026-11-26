@@ -428,11 +428,11 @@ def test_each_request_waits_for_the_line_to_rest_after_a_reply(monkeypatch):
     assert min(gaps) >= 0.1
 
 
-def test_modbus_requests_have_no_added_gap():
+def test_eg4_requests_have_no_added_gap_and_jk_ones_do():
     from packkeeper.drivers.eg4_ll import DRIVER as EG4
     from packkeeper.drivers.jk_pb import DRIVER as JK
 
-    assert EG4.framing.request_gap == 0.0 and JK.framing.request_gap == 0.0
+    assert EG4.framing.request_gap == 0.0 and JK.framing.request_gap == 0.1
 
 
 def test_real_live_temperatures_keep_their_tenths():
