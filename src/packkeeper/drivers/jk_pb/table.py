@@ -47,7 +47,8 @@ FIELDS = {
     "mos_ot_protection": (0x64, C, True, (60, 100, 0.1), "Temperature", "MOSFET OT protection"),
     "mos_ot_release": (0x68, C, True, (50, 90, 0.1), "Temperature", "MOSFET OT release"),
     "design_capacity": (0x7C, AH, False, (1, 1000, 0.001), "Balancing", "Design capacity"),
-    "short_circuit_delay": (0x80, US, False, (50, 1500, 1), "Discharge current", "Short circuit delay"),
+    # a real PB2A16S20P (v19) held 5 µs, and JK's app showed "SCP Delay(µs): 5" (2026-11-26)
+    "short_circuit_delay": (0x80, US, False, (5, 1500, 1), "Discharge current", "Short circuit delay"),
     "balance_start_voltage": (0x84, V, False, (3.0, 3.5, 0.001), "Balancing", "Balance start voltage"),
 }
 
