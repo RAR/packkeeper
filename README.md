@@ -1,59 +1,78 @@
 # PackKeeper
 
-Back up, compare and restore the protection settings of an EG4-LL battery pack
-(other BMS types can be added as drivers) over RS232, through the right-most of its paralleling ports. It runs on Windows, macOS and Linux, as a desktop
-app (Qt) or from the command line. It is an unofficial, open-source tool, not
-made or supported by EG4.
+Back up, compare, restore and change the protection settings of a battery
+pack's BMS, and check every write by reading the pack back. It supports
+**EG4-LL**, **JK-PB** (PB2A16S20P) and **ECO-WORTHY / JBD-UP** rack packs, and
+runs on Windows, macOS and Linux as a desktop app (Qt) or from the command line.
 
-It exists because the vendor's Windows BMS tool writes without checking. On
+It is an unofficial, open-source tool, not made or supported by EG4, JK, JBD or
+ECO-WORTHY. Wrong BMS settings can damage cells or cut a pack's output: read
+what each change does before you write it, and use it at your own risk.
+
+![The Settings tab: an EG4-LL pack compared with EG4's shipped values, with two staged changes that break an ordering rule flagged before anything is written](docs/images/settings.png)
+
+## Why
+
+It exists because a vendor's Windows BMS tool writes without checking. On
 2026-10-22 its "restore defaults" wrote charge OC 62 A, cell OVP 3.90 V and
-pack UVP 43.2 V to a live pack. This tool never writes blind:
+pack UVP 43.2 V to a live EG4-LL pack. PackKeeper never writes blind:
 
-1. It reads the pack's parameter block now.
-2. It shows only the registers that change, old → new, in units.
+1. It reads the pack's settings now.
+2. It shows only the settings that change, old → new, in units.
 3. It checks every new value against safe limits, and the whole resulting
-   block against the warning / protection / release ordering rules.
+   set against the warning / protection / release ordering rules.
 4. It asks for one explicit confirmation. A copy of the pack's current
    settings is saved first.
 5. It writes one register at a time, in an order where every intermediate
-   block is still valid (moving a triple up, the top goes first; moving it
+   state is still valid (moving a triple up, the top goes first; moving it
    down, the bottom goes first).
-6. It re-reads the whole block after **every** write and reports each change
-   as **confirmed** or **NOT applied**. The pack acks values below its own
-   floor and silently keeps the old ones, so the ack proves nothing. A write
+6. It re-reads the settings after **every** write and reports each change as
+   **confirmed** or **NOT applied**. A pack can ack a value below its own
+   floor and silently keep the old one, so the ack proves nothing. A write
    that didn't stick stops the sequence.
 
-There is no "factory reset" button. Restoring EG4's shipped settings goes
-through the same diff and confirmation as any backup.
+There is no "factory reset" button. Restoring shipped settings goes through
+the same diff and confirmation as any backup.
 
-## Connecting: one pack at a time
+## Supported packs
 
-There is no dedicated service port: the USB-RS232 adapter plugs into the
-pack's **right-most paralleling port**, the one EG4's own cable uses. It
-answers there at Modbus address 1 whatever its DIP ID, so the DIP switches
-stay as they are. It only answers when **no other pack is linked to it**:
-unplug the link cables from its paralleling ports first.
+| BMS | Link | What it does | Checked on real packs |
+| --- | --- | --- | --- |
+| EG4-LL | RS232, 115200 baud, through the right-most paralleling port | settings, backup / restore / copy, clock, live | ZTR-16S200A-10KW-STD2, firmware S02T11 |
+| JK-PB (PB2A16S20P) | RS485, 115200 baud, address from the DIP switches | settings, backup / restore / copy, clock, live | hardware v15 (firmware 15.41) and v19 (19.34) |
+| ECO-WORTHY / JBD-UP (48 V rack, JBD "ES/UP" BMS) | RS485, 9600 baud, address from the DIP switches | settings, backup / restore / copy, clock, live, and controls: restart, standby, MOSFET test, Normal mode | UP16S019.16S100A, app 13.5 and 14.7 |
 
-So: unplug the link cables, plug in the adapter, service the pack, then plug
-the link cables back in.
+Every type talks to **one pack at a time**: unplug the link cables between
+packs first, then plug them back in when you're done. The sections below have
+the wiring and the details for each.
 
-Hardware: a USB-RS232 adapter at real RS232 levels (not TTL), with an RJ45
-plug for the right-most paralleling port. EG4's cable is an FT232R lead; CH340, Prolific and CP210x
-adapters work too. Wire adapter TX → pack RXD, adapter RX → pack TXD, plus
-GND. If nothing decodes, swap TX and RX. The link is Modbus RTU at 115200 8N1,
-address 1.
+## Install
 
-Only RS232 works. Reading the same block over the RS485 paralleling bus (as a
-pack linked to others does) returns every threshold zero. The tool refuses such a block and says why.
+Builds for Windows, macOS and Linux are attached to each tagged release on the
+[Releases](../../releases) page. On Windows, `PackKeeper.exe` is the desktop
+app and `packkeeper-cli.exe` the command line (the app has no console).
+
+From source (Python 3.11+):
+
+```
+python -m pip install ".[gui]"
+packkeeper gui
+```
+
+- **Linux:** add yourself to the `dialout` group (or `uucp` on Arch) to open
+  serial ports.
+- **macOS:** FTDI and CH340 adapters appear as `/dev/cu.*`. The app isn't
+  signed, so right-click → Open the first time.
 
 ## Desktop app
 
-Open **PackKeeper**, pick the adapter's port and click **Connect**.
+Pick the **BMS** type and the adapter's port, then click **Connect**. Choose
+**Simulated pack** in the port list to try everything without hardware.
 
 - **Live:** read-only pack voltage, current, SOC/SOH, cells, temperatures,
   and decoded status / warning / protection bits.
-- **Settings:** four pages in a sidebar: Voltage, Current, Temperature, and
-  Balancing & capacity.
+- **Settings:** pages in a sidebar (for EG4-LL: Voltage, Current,
+  Temperature, and Balancing & capacity).
   - Thresholds are laid out as rows of Warning / Protection / Release, and
     over-current as stages of trip current and delay. Each row shows its
     safe range.
@@ -64,10 +83,10 @@ Open **PackKeeper**, pick the adapter's port and click **Connect**.
     flagged as you type, before you review: out-of-range values, and
     ordering rules such as a warning above its protection, with the fields
     involved outlined in red.
-  - **Compare with** EG4's shipped values or a backup file. Fields that
-    differ show the reference value underneath (click it to use it), the
-    sidebar counts the differences per page, and **Stage all differences**
-    turns the comparison into a restore.
+  - **Compare with** shipped values or a backup file. Fields that differ
+    show the reference value underneath (click it to use it), the sidebar
+    counts the differences per page, and **Stage all differences** turns the
+    comparison into a restore.
   - **Copy to another pack…** keeps this pack's settings as the comparison
     for the next pack you connect.
   - **Review and write…** re-reads the pack and opens the plan: the ordered
@@ -79,18 +98,16 @@ Open **PackKeeper**, pick the adapter's port and click **Connect**.
   test and Normal mode, each checked by reading the pack. The MOSFET test has
   a **Stop** button that goes back to Normal mode.
 - **Log:** every frame sent and received (hex) and every result. Session logs
-  and the pre-write backups go to `Documents/PackKeeper/`. (Before the app was
-  renamed they went to `Documents/EG4 BMS Tool/`, which is left as it was.)
+  and the pre-write backups go to `Documents/PackKeeper/`.
 
-Choose **Simulated pack** in the port list to try everything without
-hardware.
+![The Live tab for a JK-PB pack: cells, temperatures, alarms and the pack's run time](docs/images/live.png)
 
 ## Command line
 
 ```
 packkeeper ports                              list serial ports
 packkeeper info                               model, firmware, clock, live readings
-packkeeper backup pack1.json                  save the settings (raw block + decoded)
+packkeeper backup pack1.json                  save the settings (raw registers + decoded)
 packkeeper diff pack1.json                    compare the pack with a backup
 packkeeper diff --profile eg4-shipped         ... or with EG4's shipped values
 packkeeper set cell_overvoltage_warning 3.65  change a setting (KEY VALUE, repeatable)
@@ -109,51 +126,79 @@ packkeeper gui                                open the desktop app
 
 Common options:
 
+- `--bms eg4-ll | jk-pb | jbd-up` picks the BMS type (EG4-LL by default).
 - `--port` / `-p` picks the port. The default is the only USB serial port,
-  or `$PACKKEEPER_PORT` (the old `$EG4TOOL_PORT` still works).
+  or `$PACKKEEPER_PORT`.
+- `--address N` picks the address, for BMS types that have one to choose
+  (JK-PB, ECO-WORTHY / JBD-UP).
 - `-F` shows (and accepts) °F.
 - `--dry-run` / `-n` on any write command prints the frames it would send.
-
-`listen` only hears. Put a second adapter on the same A/B pair as another
-program (the stock app, a master pack) and it logs and decodes every frame:
-JBD-UP, Modbus RTU, JK's `55 AA EB 90` frames and `A5 5A` display frames.
+- `--unsafe` allows changing unsafe settings (BMS types that have them);
+  each is confirmed by typing `unsafe`.
 - `--simulate` uses a fake pack. Add `--sim-state FILE` to keep its state
   between runs.
-- `--address N` picks the Modbus address, for BMS types that have one to choose (JK-PB, ECO-WORTHY / JBD-UP).
-- `--unsafe` allows changing unsafe settings (BMS types that have them); each is confirmed by typing `unsafe`.
 
 Every run writes a session log next to the backup file, or in the current
 directory, or in `--log-dir`. `diff` exits 1 when the pack differs.
 
-On Windows, `PackKeeper.exe` is windowed and has no console. Use
-`packkeeper-cli.exe` for the command line.
+`listen` only hears. Put a second adapter on the same A/B pair as another
+program (the stock app, a master pack) and it logs and decodes every frame:
+JBD-UP, Modbus RTU, JK's `55 AA EB 90` frames and `A5 5A` display frames.
 
-## Adding a BMS
+## EG4-LL
 
-Everything specific to one BMS family lives in a driver package under
-`src/packkeeper/drivers/` (see `eg4_ll/` for the complete example). A driver
-subclasses `drivers.base.Driver` and provides:
+There is no dedicated service port: the USB-RS232 adapter plugs into the
+pack's **right-most paralleling port**, the one EG4's own cable uses. The pack
+answers there at Modbus address 1 whatever its DIP ID, so the DIP switches
+stay as they are. It only answers when **no other pack is linked to it**:
+unplug the link cables from its paralleling ports first.
 
-- a `SettingTable`: registers, scaling, safe ranges, the order rules
-  between settings, and any settings that must move together;
-- the settings block range and which registers may be written;
-- identity (model, firmware, clock) and live-value decoding;
-- the Settings tab pages, built-in profiles, connection texts;
-- a simulator, so the whole flow can be tested without hardware.
+Hardware: a USB-RS232 adapter at real RS232 levels (not TTL), with an RJ45
+plug. EG4's cable is an FT232R lead; CH340, Prolific and CP210x adapters work
+too. Wire adapter TX → pack RXD, adapter RX → pack TXD, plus GND. If nothing
+decodes, swap TX and RX. The link is Modbus RTU at 115200 8N1, address 1.
 
-Register it in `drivers/__init__.py`. The engine, CLI (`--bms`) and app
-(the BMS selector) pick it up from there. `tests/toy_driver.py` is a
-minimal driver used to keep the engine honest.
+Only RS232 works. Reading the same block over the RS485 paralleling bus (as a
+pack linked to others does) returns every threshold zero. The tool refuses
+such a block and says why.
 
-The defaults assume Modbus RTU: `write_frame`, `clock_frame`, `open_device`
-(which returns a `ModbusDevice`) and `live_reads`. A non-Modbus BMS overrides
-`open_device` to return its own `Device`. That device's `read_block()` must
-call `block.check_not_blank()` before returning, and its `write_setting` must
-refuse registers where `driver.is_writable` is false. It also overrides
-`write_frame` and `clock_frame` so `--dry-run` output makes sense.
+### Safe ranges and rules
 
-A new driver should only ever be used for `info`, `backup`, `diff` and
-`live` until its register map has been checked against a real unit.
+The settings, their encodings, LIMITS and ORDER rules are
+[`src/packkeeper/drivers/eg4_ll/settings_table.py`](src/packkeeper/drivers/eg4_ll/settings_table.py).
+It is vendored unchanged from
+[esphome-eg4-bms](https://github.com/RAR/esphome-eg4-bms) (`feat/rs232-service`,
+`cb105bf`), so the ESPHome component and this tool share one source of truth.
+This tool's own tightening (`LIMIT_OVERRIDES` and the linked 0x52/0x54 pair)
+lives in [`src/packkeeper/drivers/eg4_ll/table.py`](src/packkeeper/drivers/eg4_ll/table.py).
+
+- **Tighten, never loosen.** No limit lets a protection go past what the pack
+  ships with (cell OV 3.80 V, pack OV 60.80 V, cell UV 2.30 V, currents
+  300 A, and so on).
+- The balance delta minimum is raised to **0.020 V**. The pack drops anything
+  lower.
+- **Short circuit (0x52) and discharge OC 2 (0x54) are linked.** The
+  component and its REGISTER_MAP.md disagree on which register is which, and
+  both ship at 300 A. Until a deliberate test settles it, the tool only sets
+  them together, to the same value.
+- Only known threshold registers are ever written. The unknown registers
+  (0x2F-0x37, 0x3B-0x3C, 0x49-0x4B, 0x59, …) are kept in backups but never
+  restored. The clock (0x2D-0x2E) is written only by the clock command;
+  identity (0x69-0x7F) never.
+- A backup's raw registers are the source of truth. A file whose decoded
+  values were edited so they no longer match is refused.
+- A register the pack does not send (a reply shorter than the block, or a
+  refused read of an identity or clock area) is never guessed. It shows as
+  **not sent**, is saved as `null`, and is never written. Neither is a
+  setting whose rule partner was not sent, since the rule cannot be checked.
+  Restore and copy leave such settings alone and say which. A refused read
+  in a settings area still fails the whole read: that usually means wrong
+  addressing.
+
+The built-in **eg4-shipped** profile is a parameter block captured from a
+ZTR-16S200A-10KW-STD2 on BMS firmware S02T11 (2026-10-20). Restoring it, or
+any backup, onto a pack whose model or firmware differs shows a warning in the
+diff.
 
 ## JK-PB (PB2A16S20P)
 
@@ -162,19 +207,29 @@ BMS over RS485 with a USB-RS485 adapter, one pack at a time with the link
 cables unplugged. Pick the pack's DIP-switch address with `--address N`
 (or the **Address** box); a pack that does not answer at 1 may answer at 0.
 
+- **A pack that answers nothing at any address** may have that RS485 port set
+  to an inverter protocol (Pylon, LED, …) in JK's app. Set the port's protocol
+  back to the JK one (or use the other RS485 port), and set it back afterwards
+  if an inverter uses it.
+- The pack ignores a request sent the moment its last reply ends, so requests
+  are spaced 0.1 s apart.
+- The live view shows the pack's **run time** as JK's app shows it under
+  TIME (e.g. `1Y120D22H6M5S`), which tells you which pack the app is
+  connected to.
+
 The register map is JK's RS485 Modbus V1.1 document. The settings ranges are
 this tool's proposal for 16S LiFePO4, not JK's limits: compare them with JK's
 app before the first write. On every connect the tool reads cell
 over-voltage at two candidate addresses to confirm how the pack numbers its
 registers; if that does not come out cleanly, writes and the clock are turned
 off for that session and the reason is shown. If the pack refuses the
-settings read, run `packkeeper probe --bms jk-pb --address N` (reads only; on
-Windows `packkeeper-cli`). It tries short and long reads at the byte- and
-word-numbered addresses and prints which ones the pack accepts; the session
-log it names has every frame.
+settings read, run `packkeeper probe --bms jk-pb --address N` (reads only).
+It tries short and long reads at the byte- and word-numbered addresses and
+prints which ones the pack accepts; the session log it names has every frame.
 
 Never written: cell count, the charge/discharge/balance switches, the device
-address, calibration, shutdown, emergency start and the one-key presets.
+address, the feature switches, calibration, shutdown, emergency start and the
+one-key presets.
 
 ## ECO-WORTHY / JBD-UP (48 V rack)
 
@@ -184,9 +239,7 @@ link cables unplugged. The address is the pack's DIP value; `packkeeper find
 --bms jbd-up` (or **Find…**) lists the addresses that answer, with each pack's
 serial number.
 
-The protection map comes from notes reverse engineered from JBD's ES-UP app,
-cross-checked against syssi/esphome-jbd-bms and the PhracturedBlue ECO-WORTHY
-notes. The ranges are this tool's proposals for 16S LiFePO4 with a 100 A BMS:
+The ranges are this tool's proposals for 16S LiFePO4 with a 100 A BMS:
 compare them with the stock app before the first write.
 
 Unsafe settings (cells in series, shunt, short circuit, pack type, function and
@@ -196,8 +249,9 @@ by typing `unsafe`. Restore defaults, factory reset and calibration are not in
 this tool.
 
 **Controls** (`packkeeper control --bms jbd-up`, or the **Controls** tab):
-restart, standby sleep, a MOSFET test and Normal mode. Each one sends frames captured from
-JBD's own app, never computed ones, and checks the result by reading the pack:
+restart, standby sleep, a MOSFET test and Normal mode. Each one sends frames
+captured from JBD's own app, never computed ones, and checks the result by
+reading the pack:
 
 - **Restart**: the pack must go quiet and then answer again within 30 s.
 - **Standby sleep** (type `standby`): the pack stops answering while it
@@ -224,56 +278,37 @@ current is flowing. It is not the standby sleep.
 `--dry-run` shows the frames and sends nothing. Nothing is sent while writes
 are off.
 
-## Safe ranges and rules
+## Adding a BMS
 
-The settings, their encodings, LIMITS and ORDER rules are
-[`src/packkeeper/drivers/eg4_ll/settings_table.py`](src/packkeeper/drivers/eg4_ll/settings_table.py). It is
-vendored unchanged from
-[esphome-eg4-bms](https://github.com/RAR/esphome-eg4-bms) (`feat/rs232-service`,
-`cb105bf`), so the ESPHome component and this tool share one source of truth. This
-tool's own tightening (`LIMIT_OVERRIDES` and the linked 0x52/0x54 pair) lives
-in [`src/packkeeper/drivers/eg4_ll/table.py`](src/packkeeper/drivers/eg4_ll/table.py).
+Everything specific to one BMS family lives in a driver package under
+`src/packkeeper/drivers/` (see `eg4_ll/` for the complete example). A driver
+subclasses `drivers.base.Driver` and provides:
 
-- **Tighten, never loosen.** No limit lets a protection go past what the pack
-  ships with (cell OV 3.80 V, pack OV 60.80 V, cell UV 2.30 V, currents
-  300 A, and so on).
-- The balance delta minimum is raised to **0.020 V** in
-  [`table.py`](src/packkeeper/drivers/eg4_ll/table.py) (`LIMIT_OVERRIDES`). The pack
-  drops anything lower.
-- **Short circuit (0x52) and discharge OC 2 (0x54) are linked.** The
-  component and REGISTER_MAP.md disagree on which register is which, and
-  both ship at 300 A. Until a deliberate test settles it, the tool only sets
-  them together, to the same value.
-- Only known threshold registers are ever written. The unknown registers
-  (0x2F-0x37, 0x3B-0x3C, 0x49-0x4B, 0x59, …) are kept in backups but never
-  restored. The clock (0x2D-0x2E) is written only by the clock command;
-  identity (0x69-0x7F) never.
-- A backup's raw registers are the source of truth. A file whose decoded
-  values were edited so they no longer match is refused.
-- A register the pack does not send (a reply shorter than the block, or a
-  refused read of an identity or clock area) is never guessed. It shows as
-  **not sent**, is saved as `null`, and is never written. Neither is a
-  setting whose rule partner was not sent, since the rule cannot be checked.
-  Restore and copy leave such settings alone and say which. A refused read
-  in a settings area still fails the whole read: that usually means wrong
-  addressing.
+- a `SettingTable`: registers, scaling, safe ranges, the order rules
+  between settings, and any settings that must move together;
+- the settings block range and which registers may be written;
+- identity (model, firmware, clock) and live-value decoding;
+- the Settings tab pages, built-in profiles, connection texts;
+- a simulator, so the whole flow can be tested without hardware.
 
-The built-in **eg4-shipped** profile is a parameter block captured from a
-ZTR-16S200A-10KW-STD2 on BMS firmware S02T11 (2026-10-20). Restoring it, or
-any backup, onto a pack whose model or firmware differs shows a warning in the
-diff.
+Register it in `drivers/__init__.py`. The engine, CLI (`--bms`) and app
+(the BMS selector) pick it up from there. `tests/toy_driver.py` is a
+minimal driver used to keep the engine honest.
 
-## Install from source
+The defaults assume Modbus RTU: `write_frame`, `clock_frame`, `open_device`
+(which returns a `ModbusDevice`) and `live_reads`. A non-Modbus BMS overrides
+`open_device` to return its own `Device`. That device's `read_block()` must
+call `block.check_not_blank()` before returning, and its `write_setting` must
+refuse registers where `driver.is_writable` is false. It also overrides
+`write_frame` and `clock_frame` so `--dry-run` output makes sense.
 
-```
-python -m pip install ".[gui]"     # Python 3.11+
-packkeeper gui
-```
+A new driver should only ever be used for `info`, `backup`, `diff` and
+`live` until its register map has been checked against a real unit. On a
+real pack, any write test needs someone at the pack who agrees to that
+specific write.
 
-- **Linux:** add yourself to the `dialout` group (or `uucp` on Arch) to open
-  serial ports.
-- **macOS:** FTDI and CH340 adapters appear as `/dev/cu.*`. The app isn't
-  signed, so right-click → Open the first time.
+The design notes for the driver layer and each driver are in
+[`docs/design/`](docs/design/).
 
 ## Development
 
@@ -281,33 +316,45 @@ packkeeper gui
 python -m pip install -e ".[gui,dev]"
 pytest                                  # engine + GUI (offscreen) tests, no hardware
 python packaging/build.py               # PyInstaller builds into dist/
+python packaging/screenshots.py         # regenerate docs/images from the simulated packs
 ```
 
-The tests decode the captured reference frames, and cover CRC, framing,
+The tests decode frames captured from real packs, and cover CRC, framing,
 LIMITS/ORDER, the write-order planner (including refusals and a randomized
-check that every valid target gets a safe order), backups, and a fake pack.
-The fake pack applies writes and can ack a write but drop it, exercising the
-"NOT applied" path.
+check that every valid target gets a safe order), backups, the controls, and
+a fake pack per BMS type. The fake packs apply writes and can ack a write but
+drop it, exercising the "NOT applied" path.
 
 `.github/workflows/build.yml` runs the tests on Linux for every push and
-pull request. Builds cost more CI minutes (macOS counts 10x and Windows 2x
-on a private repo), so they run only when asked for or on a `v*` tag, which
-builds all four and drafts a release:
+pull request. Builds run only when asked for, or on a `v*` tag, which builds
+all four and drafts a release:
 
 ```
 gh workflow run build --ref main                     # Windows build only
 gh workflow run build --ref main -f platforms=all    # Windows, macOS arm64 and x86_64, Linux
 ```
 
-To build on your own machine instead (no CI minutes): `python
-packaging/build.py` builds for the platform it runs on. On Windows,
-`packaging\build-windows.bat` does it all: it installs uv if needed, runs the
-tests, builds both programs and zips them. Copy the source to the PC's disk
-first.
+To build on your own machine instead: `python packaging/build.py` builds for
+the platform it runs on. On Windows, `packaging\build-windows.bat` does it
+all: it installs uv if needed, runs the tests, builds both programs and zips
+them. Copy the source to the PC's disk first.
 
-On a real pack, start with `info`, `backup`, `diff` and `live`. Any write
-test needs the owner present and agreeing to that specific write.
+## Sources
 
-The protocol comes only from the public EG4-LL Modbus PDF, the open-source
-component, and reads of the owner's own packs. Nothing here comes from
-decompiling the vendor tool or the pack firmware.
+- **EG4-LL:** EG4's public EG4-LL Modbus protocol PDF, the
+  [esphome-eg4-bms](https://github.com/RAR/esphome-eg4-bms) component, and
+  reads of real packs. Nothing here comes from decompiling EG4's tool or the
+  pack firmware.
+- **JK-PB:** JK's RS485 Modbus V1.1 document; feature-bit names from
+  [syssi/esphome-jk-bms](https://github.com/syssi/esphome-jk-bms)
+  (`jk_bms_ble.cpp`) and its discussion #501; checked against JK's app on real
+  packs.
+- **ECO-WORTHY / JBD-UP:** protocol notes reverse engineered from JBD's ES-UP
+  app, cross-checked against
+  [syssi/esphome-jbd-bms](https://github.com/syssi/esphome-jbd-bms) and
+  PhracturedBlue's ECO-WORTHY JBD-UP notes; the control frames were captured
+  from JBD's own app.
+
+## License
+
+[Apache License 2.0](LICENSE).
