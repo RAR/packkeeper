@@ -209,12 +209,14 @@ JBD's own app, never computed ones, and checks the result by reading the pack:
 - **MOSFET test** (type `test`): Tooling mode (both MOSFETs off), charge on,
   both on, then back to Normal, each step checked against the live MOSFET bits.
   If a step fails, or you stop it or press Ctrl-C, it goes back to Normal mode
-  and checks that. The pack's output is cut for a few seconds, so run it with
-  little or no load.
+  and checks that. **Stop** (or closing the window) ends the check in progress
+  at once. The pack's output is cut for a few seconds, so run it with little or
+  no load.
 - **Normal mode**: takes the BMS out of Tooling mode (for example if the stock
-  app left it there); confirmed when the mode reads back as normal. The
-  MOSFETs' state is shown: in Normal mode the BMS drives them, so a protection
-  may hold one off.
+  app left it there); confirmed when the mode reads back as normal. It then
+  waits up to 10 s for both MOSFETs and shows their state: leaving Tooling, a
+  real pack turned charge on first and discharge a few seconds later, and in
+  Normal mode the BMS drives them, so a protection may hold one off.
 
 The live status JBD calls 0 is shown as **Idle**, as the stock app does: no
 current is flowing. It is not the standby sleep.

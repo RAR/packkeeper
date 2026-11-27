@@ -9,6 +9,7 @@ from PySide6.QtGui import QColor
 
 from . import backup, drivers
 from .block import BlankBlockError, DriverMismatch
+from .device import PackError
 from .service import StaleError
 from .settings import SettingError
 from .transport import NoReply
@@ -33,6 +34,6 @@ def error_text(e: Exception, driver=None) -> str:
     if isinstance(e, NoReply):
         help_text = (driver or drivers.get(drivers.DEFAULT)).connection_help
         return f"{e}\n\n{help_text}" if help_text else str(e)
-    if isinstance(e, (BlankBlockError, StaleError, SettingError, backup.BackupError, DriverMismatch)):
+    if isinstance(e, (BlankBlockError, StaleError, SettingError, backup.BackupError, DriverMismatch, PackError)):
         return str(e)
     return f"{type(e).__name__}: {e}"

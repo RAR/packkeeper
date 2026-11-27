@@ -140,7 +140,7 @@ class ControlsTab(QWidget):
     def on_stop(self) -> None:
         self.stop.set()
         self.stop_btn.setEnabled(False)
-        self.lines.append("Stopping: back to Normal after the current step…")
+        self.lines.append("Stopping: going back to Normal…")
         self.steps.setText("<br>".join(self.lines))
 
     def done(self, res, err) -> None:
@@ -149,7 +149,8 @@ class ControlsTab(QWidget):
         if err is not None:
             self.lines.append(f"<b style='color:{BAD.name()}'>Failed:</b> {error_text(err, self.main.driver)}")
         elif res.ok:
-            self.lines.append(f"<b style='color:{GOOD.name()}'>Confirmed.</b>")
+            late = " Stop came after the last step had finished." if self.stop.is_set() else ""
+            self.lines.append(f"<b style='color:{GOOD.name()}'>Confirmed.</b>{late}")
         else:
             self.lines.append(f"<b style='color:{BAD.name()}'>NOT confirmed:</b> {res.stopped}")
             if not res.cleanup_ok:

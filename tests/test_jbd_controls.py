@@ -1,6 +1,7 @@
 """JBD-UP live controls: frames byte for byte as captured, checked against the simulator."""
 
 import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -33,6 +34,7 @@ def fast(monkeypatch):
     monkeypatch.setattr(JC, "QUIET_WAIT_S", 0.3)
     monkeypatch.setattr(JC, "BACK_WAIT_S", 0.5)
     monkeypatch.setattr(JC, "SLEEP_WAIT_S", 0.3)
+    monkeypatch.setattr(JC, "NORMAL_WAIT_S", 0.6)
 
 
 def jbd(**kw):
@@ -185,6 +187,63 @@ def test_normal_mode_takes_a_pack_out_of_tooling():
     res = run_control(dev, by_key()["normal"])
     assert res.ok and res.results[0].detail == "debug mode reads normal; MOSFETs read charge on, discharge on"
     assert sim.writes[-1] == (0x2900, [0])
+
+
+def test_normal_mode_waits_for_the_discharge_mosfet():
+    # A real pack turned its charge MOSFET on first and discharge a few seconds later (2026-11-26).
+    sim, dev = jbd()
+    sim.discharge_lag_s = 0.2
+    dev.read_block()
+    dev.send_control(by_key()["mosfet-test"].steps[0])
+    res = run_control(dev, by_key()["normal"])
+    detail = res.results[0].detail
+    assert res.ok and detail.startswith("debug mode reads normal; MOSFETs read charge on, discharge on after ")
+
+
+def test_normal_mode_reports_a_mosfet_the_bms_holds_off():
+    sim, dev = jbd()
+    sim.discharge_lag_s = None  # e.g. a protection holds discharge off
+    dev.read_block()
+    dev.send_control(by_key()["mosfet-test"].steps[0])
+    res = run_control(dev, by_key()["normal"])
+    assert res.ok and res.results[0].detail == (
+        "debug mode reads normal; MOSFETs still read charge on, discharge off after 0.6 s "
+        "(the BMS may be holding one off)"
+    )
+
+
+def test_cleanup_back_to_normal_waits_for_the_discharge_mosfet():
+    sim, dev = jbd()
+    sim.ignore = {0x2902}  # the charge-on step fails, so cleanup sends Normal with both MOSFETs off
+    sim.discharge_lag_s = 0.3  # longer than MOS_WAIT_S
+    res = run_control(dev, by_key()["mosfet-test"])
+    assert not res.ok and res.results[-1].cleanup and res.results[-1].status == CONFIRMED and res.cleanup_ok
+
+
+def test_stop_ends_a_restart_check_at_once():
+    sim, dev = jbd()
+    sim.restart_s = None  # never answers again
+    JC.BACK_WAIT_S = 30.0
+    stop = threading.Event()
+    threading.Timer(0.1, stop.set).start()
+    t0 = time.monotonic()
+    res = run_control(dev, by_key()["restart"], stop=stop)
+    assert time.monotonic() - t0 < 2
+    assert res.stopped == "stopped by the user" and res.results[0].status == UNVERIFIED
+    assert "stopped by the user before the check finished" in res.results[0].detail
+
+
+def test_stop_during_a_check_still_returns_to_normal():
+    sim, dev = jbd()
+    sim.stuck_mosfets = True  # the Tooling check would wait out MOS_WAIT_S
+    JC.MOS_WAIT_S = 30.0
+    stop = threading.Event()
+    threading.Timer(0.1, stop.set).start()
+    t0 = time.monotonic()
+    res = run_control(dev, by_key()["mosfet-test"], stop=stop)
+    assert time.monotonic() - t0 < 2
+    assert res.stopped == "stopped by the user" and res.results[-1].cleanup
+    assert res.results[-1].status == CONFIRMED and sim.writes[-1] == (0x2900, [0])
 
 
 def test_normal_mode_not_applied_is_not_confirmed():

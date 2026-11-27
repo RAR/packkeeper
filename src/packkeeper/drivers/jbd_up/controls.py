@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import time
 
-from ...controls import Check, Control, Step
+from ...controls import Check, Control, Step, pause
 from ...errors import FrameError
 from ...transport import NoReply
 from . import registers as R
@@ -25,6 +25,7 @@ MOS_WAIT_S = 3.0  # for the live MOSFET bits to show a step
 QUIET_WAIT_S = 5.0  # for a restarting pack to stop answering
 BACK_WAIT_S = 30.0  # for it to answer again
 SLEEP_WAIT_S = 10.0  # for a pack that fell asleep to answer again
+NORMAL_WAIT_S = 10.0  # for both MOSFETs after Normal: charge came on first, discharge a few s later (2026-11-26)
 POLL_S = 0.25
 
 
@@ -32,25 +33,29 @@ def _onoff(charge: bool, discharge: bool) -> str:
     return f"charge {'on' if charge else 'off'}, discharge {'on' if discharge else 'off'}"
 
 
+def _wait_for_mosfets(device, charge: bool, discharge: bool, seconds: float) -> Check:
+    deadline = time.monotonic() + seconds
+    while True:
+        live = device.read_live(retries=1)
+        seen = (live.charge_allowed, live.discharge_allowed)
+        if seen == (charge, discharge):
+            return Check(True, f"MOSFETs read {_onoff(*seen)}")
+        if time.monotonic() >= deadline:
+            return Check(False, f"MOSFETs read {_onoff(*seen)}, expected {_onoff(charge, discharge)}")
+        pause(POLL_S)
+
+
 def mosfets(charge: bool, discharge: bool):
     """A check: the live MOSFET bits show this state within MOS_WAIT_S."""
 
     def check(device, acked: bool) -> Check:
-        deadline = time.monotonic() + MOS_WAIT_S
-        while True:
-            live = device.read_live(retries=1)
-            seen = (live.charge_allowed, live.discharge_allowed)
-            if seen == (charge, discharge):
-                return Check(True, f"MOSFETs read {_onoff(*seen)}")
-            if time.monotonic() >= deadline:
-                return Check(False, f"MOSFETs read {_onoff(*seen)}, expected {_onoff(charge, discharge)}")
-            time.sleep(POLL_S)
+        return _wait_for_mosfets(device, charge, discharge, MOS_WAIT_S)
 
     return check
 
 
 def normal_mode(device, acked: bool) -> Check:
-    c = mosfets(True, True)(device, acked)
+    c = _wait_for_mosfets(device, True, True, NORMAL_WAIT_S)
     if not c.ok:
         return c
     mode = device.read_area(R.DEBUG, retries=1)[0]
@@ -61,13 +66,23 @@ def normal_mode(device, acked: bool) -> Check:
 
 def mode_reads_normal(device, acked: bool) -> Check:
     """Normal mode on its own: the mode reads 0. The BMS drives the MOSFETs again, and a protection may
-    hold one off, so their state is only reported."""
+    hold one off, so their state is only reported, after waiting up to NORMAL_WAIT_S for both."""
     mode = device.read_area(R.DEBUG, retries=1)[0]
     live = device.read_live(retries=1)
-    seen = f"MOSFETs read {_onoff(live.charge_allowed, live.discharge_allowed)}"
     if mode != NORMAL:
-        return Check(False, f"debug mode reads 0x{mode:04X}, expected normal (0); {seen}")
-    return Check(True, f"debug mode reads normal; {seen}")
+        seen = _onoff(live.charge_allowed, live.discharge_allowed)
+        return Check(False, f"debug mode reads 0x{mode:04X}, expected normal (0); MOSFETs read {seen}")
+    start, waited = time.monotonic(), False
+    while not (live.charge_allowed and live.discharge_allowed):
+        waited = True
+        if time.monotonic() - start >= NORMAL_WAIT_S:
+            seen = _onoff(live.charge_allowed, live.discharge_allowed)
+            return Check(True, f"debug mode reads normal; MOSFETs still read {seen} after {NORMAL_WAIT_S:.1f} s "
+                               "(the BMS may be holding one off)")
+        pause(POLL_S)
+        live = device.read_live(retries=1)
+    after = f" after {time.monotonic() - start:.1f} s" if waited else ""
+    return Check(True, f"debug mode reads normal; MOSFETs read {_onoff(True, True)}{after}")
 
 
 def restarted(device, acked: bool) -> Check:
@@ -80,10 +95,10 @@ def restarted(device, acked: bool) -> Check:
             break
         if time.monotonic() >= end:
             return Check(None, f"{'acked' if acked else 'no ack'}, but the pack never went quiet: restart not seen")
-        time.sleep(POLL_S)
+        pause(POLL_S)
     end = time.monotonic() + BACK_WAIT_S
     while time.monotonic() < end:
-        time.sleep(POLL_S)
+        pause(POLL_S)
         try:
             device.read_area(R.VERSION, retries=1)
         except (NoReply, FrameError):
@@ -108,7 +123,7 @@ def standby(device, acked: bool) -> Check:
         if time.monotonic() - start >= SLEEP_WAIT_S:
             return Check(True if acked else None,
                          f"{ack}; the pack went quiet (asleep) and has not answered for {SLEEP_WAIT_S:.0f} s")
-        time.sleep(POLL_S)
+        pause(POLL_S)
     if quiet:
         waited = time.monotonic() - start
         return Check(True, f"{ack}; the pack went quiet (asleep), answered again after {waited:.1f} s and reports {status}")

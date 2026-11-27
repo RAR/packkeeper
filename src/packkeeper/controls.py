@@ -7,8 +7,12 @@ write did. service.run_control sends the steps and runs the checks.
 
 from __future__ import annotations
 
+import threading
+import time
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import Callable
+from typing import Callable, Iterator
 
 CONFIRMED = "confirmed"
 NOT_CONFIRMED = "NOT confirmed"
@@ -69,6 +73,33 @@ class ControlResult:
     @property
     def cleanup_ok(self) -> bool:
         return all(r.status == CONFIRMED for r in self.results if r.cleanup)
+
+
+class Stopped(Exception):
+    """The user pressed Stop (or closed the window) while a check was waiting on the pack."""
+
+
+_STOP: ContextVar[threading.Event | None] = ContextVar("packkeeper_control_stop", default=None)
+
+
+@contextmanager
+def stoppable(stop: threading.Event | None) -> Iterator[None]:
+    """While inside, pause() raises Stopped once `stop` is set. Cleanup steps run outside it, so
+    their checks always finish."""
+    token = _STOP.set(stop)
+    try:
+        yield
+    finally:
+        _STOP.reset(token)
+
+
+def pause(seconds: float) -> None:
+    """A check's wait between reads of the pack: ends at once with Stopped if the user stops."""
+    stop = _STOP.get()
+    if stop is None:
+        time.sleep(seconds)
+    elif stop.wait(seconds):
+        raise Stopped
 
 
 def control_frames(device, control: Control) -> list[tuple[str, bytes]]:

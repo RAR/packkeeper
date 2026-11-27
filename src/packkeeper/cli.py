@@ -621,6 +621,8 @@ def cmd_control(args) -> int:
         return 2
     pack.log.info(f"control {control.key} confirmed by user")
     print()
+    # run_control reads the pack again: the typed answer can come much later, and that read re-checks
+    # that writes are still allowed, as the GUI does after its dialog.
     res = run_control(pack, control, lambda r: print(f"  {r.describe()}"))
     if res.ok:
         print("\nControl confirmed.")

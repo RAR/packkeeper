@@ -785,3 +785,29 @@ def test_closing_mid_control_goes_back_to_normal_first(window, monkeypatch):
     wait(app, lambda: sim.writes and sim.writes[-1] == (0x2900, [0x5A01]))
     w.close()
     assert sim.writes[-1] == (0x2900, [0]) and sim.mem[0x2900] == 0
+
+
+def test_closing_during_a_restart_does_not_wait_out_the_pack(window, monkeypatch):
+    import packkeeper.drivers.jbd_up.controls as JC
+
+    app, w = window
+    monkeypatch.setattr(JC, "POLL_S", 0.01)
+    yes = gui.controls_view.QMessageBox.StandardButton.Yes
+    monkeypatch.setattr(gui.controls_view.QMessageBox, "question", lambda *a, **k: yes)
+    connect_jbd(app, w)
+    sim = w.pack.transport.packs[0]
+    sim.restart_s = None  # never answers again: the check would wait BACK_WAIT_S (30 s)
+    click_control(app, w, "restart")
+    wait(app, lambda: sim.writes and sim.writes[-1] == (0x2912, [0x4A4A]))
+    t0 = time.monotonic()
+    w.close()
+    assert time.monotonic() - t0 < 3
+
+
+def test_a_writes_off_error_reads_as_a_plain_message():
+    from packkeeper.device import PackError
+    from packkeeper.qtcommon import error_text
+
+    assert error_text(PackError("writes are off: the pack changed; nothing was sent")) == (
+        "writes are off: the pack changed; nothing was sent"
+    )

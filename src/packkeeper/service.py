@@ -317,17 +317,21 @@ def run_control(
         if progress:
             progress(r)
 
+    def stopped_by_user() -> bool:
+        return stop is not None and stop.is_set()
+
     try:
-        for step in control.steps:
-            if stop is not None and stop.is_set():
-                out.stopped = "stopped by the user"
-                break
-            r = _send_step(pack, step)
-            on_wire = on_wire or r.status != C.NOT_SENT
-            record(r)
-            if r.status != C.CONFIRMED:
-                out.stopped = f"{step.label}: {r.status} ({r.detail})"
-                break
+        with C.stoppable(stop):
+            for step in control.steps:
+                if stopped_by_user():
+                    out.stopped = "stopped by the user"
+                    break
+                r = _send_step(pack, step)
+                on_wire = on_wire or r.status != C.NOT_SENT
+                record(r)
+                if r.status != C.CONFIRMED:
+                    out.stopped = "stopped by the user" if stopped_by_user() else f"{step.label}: {r.status} ({r.detail})"
+                    break
     except KeyboardInterrupt:
         out.stopped = "interrupted"
         on_wire = True  # a frame may have gone out when Ctrl-C came
@@ -364,6 +368,8 @@ def _send_step(pack: Device, step: C.Step, cleanup: bool = False) -> C.StepResul
         check = step.check(pack, acked)
     except (NoReply, FrameError, DeviceRefused, MissingRegister) as e:
         check = C.Check(None, f"the read-back failed: {e}")
+    except C.Stopped:
+        check = C.Check(None, "sent; stopped by the user before the check finished")
     status = C.CONFIRMED if check.ok else C.UNVERIFIED if check.ok is None else C.NOT_CONFIRMED
     detail = check.detail if acked or "no ack" in check.detail else check.detail + " (no ack)"
     return C.StepResult(step, status, detail, cleanup)

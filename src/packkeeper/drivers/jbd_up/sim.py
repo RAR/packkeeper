@@ -123,6 +123,10 @@ class FakeJbd:
         self.standby_acks = True  # False: falls asleep before acking standby (the real pack under load, 2026-11-26)
         self.ignore: set[int] = set()  # registers whose writes are acked but not applied
         self.stuck_mosfets = False  # Tooling mode leaves the MOSFETs on
+        # Leaving Tooling, discharge comes on this long after charge (a real pack: a few s, 2026-11-26);
+        # None: the BMS holds it off.
+        self.discharge_lag_s: float | None = 0.0
+        self._discharge_at: float | None = 0.0
         self._silent_until: float | None = 0.0
         self._standby_reads = 0
         self._status = self.mem[R.REG_STATE]
@@ -145,10 +149,13 @@ class FakeJbd:
             set_at, base = self._clock_base
             self._set_clock(base + (datetime.now() - set_at))
 
-    def _control(self, register: int, value: int) -> None:
+    def _control(self, register: int, value: int, mode_before: int) -> None:
         """What the captured controls did to a real pack (2026-10-24)."""
         if register == C.REG_MODE and value == C.TOOLING:
             self.mem[C.REG_MOS] = 0  # entering Tooling switched both MOSFETs off
+        elif register == C.REG_MODE and value == C.NORMAL and mode_before == C.TOOLING:
+            lag = self.discharge_lag_s
+            self._discharge_at = None if lag is None else time.monotonic() + lag
         elif register == C.REG_SLEEP and value == C.STANDBY:
             self.mem[register] = 0
             self._standby_reads = 2
@@ -165,7 +172,8 @@ class FakeJbd:
             mos = self.mem.get(C.REG_MOS, 0)
             io |= (0b10 if mos & 1 else 0) | (0b01 if mos & 2 else 0)
         else:
-            io |= 0b11
+            on = self._discharge_at is not None and time.monotonic() >= self._discharge_at
+            io |= 0b10 | (0b01 if on else 0)
         self.mem[R.REG_IO] = io
         self.mem[R.REG_STATE] = 0 if not io & 0b01 or self._standby_reads else self._status
         self._standby_reads = max(0, self._standby_reads - 1)
@@ -192,6 +200,7 @@ class FakeJbd:
             self.writes.append((start, values))
             if start in self.ignore:
                 return with_crc(struct.pack(">BBHHH", addr, fn, start, end, 0))  # acked, not applied
+            mode_before = self.mem.get(C.REG_MODE, 0)
             for i, v in enumerate(values):
                 reg = start + 2 * i
                 if reg in self.floors and v < self.floors[reg]:
@@ -199,7 +208,7 @@ class FakeJbd:
                 self.mem[reg] = v
             if start == R.CLOCK.start:
                 self._clock_base = (datetime.now(), datetime(*values[:6]))
-            self._control(start, values[0])
+            self._control(start, values[0], mode_before)
             self._save()
             if start == C.REG_SLEEP and not self.standby_acks:
                 raise NoReply("simulated pack fell asleep before acking")
