@@ -5,7 +5,7 @@ Branch: `jk-pb`, from `rename-packkeeper`.
 
 ## Goal
 
-Add a driver for the JK PB2A16S20P inverter BMS (the user has hardware
+Add a driver for the JK PB2A16S20P inverter BMS (tested on hardware
 v15 and v19 units), used on 16S LiFePO4 packs. It supports the full tool:
 info, backup, diff, restore, copy, set, clock and live, with the same
 guard rails as EG4-LL. To get there, the generic core learns 32-bit

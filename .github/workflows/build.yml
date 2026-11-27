@@ -4,9 +4,10 @@ name: build
 # Builds run on a release tag (all platforms) or by hand:
 #   gh workflow run build --ref main                      # Windows only
 #   gh workflow run build --ref main -f platforms=all     # all four
-# macOS minutes count 10x and Windows 2x on a private repo, so build only
-# what is needed. A Windows build can also be made on a Windows PC with
-# packaging\build-windows.bat, which uses no CI minutes.
+# On a private repo macOS minutes count 10x and Windows 2x (a public repo's
+# standard runners are free), so build only what is needed. A Windows build
+# can also be made on a Windows PC with packaging\build-windows.bat, which
+# uses no CI minutes.
 
 on:
   push:

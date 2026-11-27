@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "packkeeper"
-description = "Back up, diff and restore battery pack BMS protection settings over RS232 (EG4-LL for now)"
+description = "Back up, diff, restore and set battery-pack BMS protection settings (EG4-LL, JK-PB, ECO-WORTHY/JBD)"
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.11"

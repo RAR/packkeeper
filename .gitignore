@@ -9,3 +9,8 @@ packkeeper-*.log
 packkeeper-*.before-*.json
 .DS_Store
 uv.lock
+.ruff_cache/
+.superpowers/
+*.zip
+logs/
+backups/

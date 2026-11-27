@@ -11,11 +11,9 @@ none.
 ## Where the frames come from
 
 Every frame here was captured from JBD's stock app (JBD-ES-UP V1.22.35) on
-pack 2 (app 13.5, protocol 2.6). No code was decompiled. The listener was on
-the eco-charger bridge B's RS485 passthrough, wired in parallel with the
-stock app's adapter. The capture is
-`~/eco-charger/captures/jbd-controls-20261024-094951.log`, with a mark before
-and after each click.
+pack 2 (app 13.5, protocol 2.6). No code was decompiled. A receive-only
+listener sat on the same RS485 pair as the stock app's adapter and marked the
+log before and after each click.
 
 Each control is a single 0x79 write. The pack acked each one with an empty
 reply (len 0). The stock app used key 0x11 until it had read the version
@@ -49,8 +47,8 @@ In:
 - **Restart.**
 - **Standby sleep.**
 - **MOSFET test:** Tooling → charge on → both on → Normal, each step
-  checked against the live MOSFET bits. The user wants MOSFET switching for
-  testing, so the test always ends in Normal mode. A pack is never left in
+  checked against the live MOSFET bits. MOSFET switching is for testing, so the
+  test always ends in Normal mode. A pack is never left in
   Tooling mode.
 
 Out:

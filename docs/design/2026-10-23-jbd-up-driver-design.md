@@ -5,7 +5,7 @@ Branch: `jbd-up`, from `rename-packkeeper`.
 
 ## Goal
 
-Support the user's six ECO-WORTHY 48 V rack packs. They have JBD "ES/UP" BMS
+Support ECO-WORTHY 48 V rack packs. They have JBD "ES/UP" BMS
 boards rated 100 A, 16S LiFePO4, and connect over RS485.
 
 Using them needs a second wire protocol. JBD-UP is not Modbus: it uses
@@ -43,10 +43,9 @@ Out of scope for both pieces:
 
 ## Sources
 
-1. `/Users/rar/eco-worthy-app/JBD-ES-UP-V1.22.35/PROTOCOL.md`, the user's
-   notes, reverse engineered from JBD's ES-UP Windows apps V1.22.35 and
-   V2.00.40. The user approved using it. It is the only source for the
-   protection map at 0x1800.
+1. Unpublished protocol notes, reverse engineered from JBD's ES-UP Windows
+   apps V1.22.35 and V2.00.40. They are the only source for the protection
+   map at 0x1800.
 2. syssi/esphome-jbd-bms `components/jbd_bms_up_pack`. It covers the 0x78/0x79
    framing and the 0x1000 realtime block, with byte offsets checked against
    an UP16S020 capture.
@@ -284,7 +283,7 @@ Capacity area:
 | charge request voltage / current | 0x202A / 0x202C | 0.1 V / 0.1 A | 48.0–58.4 V / 1–100 A |
 | discharge request voltage / current | 0x202E / 0x2030 | 0.1 V / 0.1 A | 40.0–52.0 V / 1–100 A |
 
-The SOC table's (mV, %) pairs follow the user's notes, which list them as
+The SOC table's (mV, %) pairs follow those notes, which list them as
 interleaved. The first session confirms the order.
 
 ### Order rules

@@ -4,7 +4,7 @@
 
 Registers are byte addresses (end = start + bytes). Reads are 0x78 with no
 data; writes are 0x79 with data = key byte, 'JBD', then the values. Sources:
-the user's PROTOCOL.md (from JBD's ES-UP apps), syssi/esphome-jbd-bms
+protocol notes reverse engineered from JBD's ES-UP apps, syssi/esphome-jbd-bms
 jbd_bms_up, and the PhracturedBlue ECO-WORTHY gist.
 """
 
