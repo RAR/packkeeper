@@ -61,8 +61,17 @@ packkeeper gui
 
 - **Linux:** add yourself to the `dialout` group (or `uucp` on Arch) to open
   serial ports.
-- **macOS:** FTDI and CH340 adapters appear as `/dev/cu.*`. The app isn't
-  signed, so right-click → Open the first time.
+- **macOS:** the builds aren't signed or notarized, so macOS blocks them at
+  first ("Apple could not verify…"). Either remove the download quarantine
+  from the unzipped folder in Terminal, which covers both programs:
+
+  ```
+  xattr -dr com.apple.quarantine ~/Downloads/pkg
+  ```
+
+  or open each program once, then go to System Settings → **Privacy &
+  Security**, click **Open Anyway**, and open it again. FTDI and CH340
+  adapters appear as `/dev/cu.*`.
 
 ## Desktop app
 
