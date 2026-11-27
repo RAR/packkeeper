@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from packkeeper.listen import split
+from packkeeper.listen import run, split
 from packkeeper.modbus import with_crc
 
 HERE = Path(__file__).parent
@@ -43,6 +43,30 @@ def test_decodes_a_jbd_write_with_its_key():
     frame = with_crc(bytes([1, 0x79, 0x29, 0x12, 0x29, 0x14, 0, len(data)]) + data)
     (h,), _ = split(frame, final=True)
     assert h.text == "JBD addr 1 write 0x2912 key 35: 4A 4A"
+
+
+def test_names_a_jbd_history_request_rather_than_calling_it_a_reply():
+    # The stock app asks for history records as a 0x78 read *with* 2 data bytes, the record index.
+    frame = with_crc(bytes([1, 0x78, 0x40, 0x00, 0x40, 0x01, 0, 2, 0, 1]))
+    (h,), _ = split(frame, final=True)
+    assert h.text == "JBD addr 1 history request 0x4000: record 1"
+
+
+def test_a_frame_split_by_a_short_pause_is_heard_whole():
+    # A frame relayed over Wi-Fi can arrive in pieces with empty reads between them.
+    req, rep = real_jbd_pair()
+    chunks = [req, rep[:100], b"", b"", b"", rep[100:]]
+    heard = []
+    run(lambda n: chunks.pop(0) if chunks else b"", heard.append, seconds=0.2)
+    assert [h.text for h in heard] == ["JBD addr 2 read 0x1800-0x1900", "JBD addr 2 reply 0x1800: 208 bytes"]
+
+
+def test_a_cut_frame_is_given_up_as_noise_once_the_line_stays_quiet():
+    req, rep = real_jbd_pair()
+    chunks = [rep[:100]]
+    heard = []
+    run(lambda n: chunks.pop(0) if chunks else b"", heard.append, seconds=0.2, quiet_s=0.05)
+    assert [h.kind for h in heard] == ["noise"] and heard[0].raw == rep[:100]
 
 
 def test_splits_modbus_polls_jk_frames_display_frames_and_noise():

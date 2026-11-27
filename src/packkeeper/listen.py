@@ -17,6 +17,8 @@ JK_KINDS = {1: "settings", 2: "status", 3: "about"}
 DISPLAY_MAGIC = bytes([0xA5, 0x5A])
 JBD_READ, JBD_WRITE = 0x78, 0x79
 JBD_MAX_DATA = 494  # 490 data bytes plus the write key and 'JBD'
+JBD_HISTORY = 0x4000  # the stock app reads history with a 0x78 frame here carrying the record index
+QUIET_S = 0.5  # a frame still unfinished after this long without a byte is given up as noise
 NEED_MORE = -1  # a matcher's answer when the frame may continue past the bytes so far
 
 
@@ -102,6 +104,8 @@ def describe(kind: str, f: bytes) -> str:
     if kind == "JBD":
         addr, fn, start, end, n = struct.unpack(">BBHHH", f[:8])
         data = f[8:-2]
+        if fn == JBD_READ and start == JBD_HISTORY and n == 2:
+            return f"JBD addr {addr} history request 0x{start:04X}: record {struct.unpack('>H', data)[0]}"
         if fn == JBD_READ:
             return f"JBD addr {addr} reply 0x{start:04X}: {n} bytes" if n else f"JBD addr {addr} read 0x{start:04X}-0x{end:04X}"
         if data[1:4] == b"JBD":
@@ -158,16 +162,26 @@ def split(buf: bytes, final: bool = False) -> tuple[list[Heard], bytes]:
     return heard, buf[i:]
 
 
-def run(read: Callable[[int], bytes], on_heard: Callable[[Heard], None], seconds: float | None = None) -> None:
-    """Read until `seconds` pass (or forever); a read that returns nothing means the line is quiet."""
+def run(
+    read: Callable[[int], bytes],
+    on_heard: Callable[[Heard], None],
+    seconds: float | None = None,
+    quiet_s: float = QUIET_S,
+) -> None:
+    """Read until `seconds` pass (or forever). An unfinished frame is kept until the line has been
+    quiet for `quiet_s`: a frame relayed over Wi-Fi can arrive in pieces with empty reads between."""
     deadline = None if seconds is None else time.monotonic() + seconds
     buf = b""
+    last = time.monotonic()
     while deadline is None or time.monotonic() < deadline:
         chunk = read(512)
         if chunk:
+            last = time.monotonic()
             heard, buf = split(buf + chunk)
-        else:
+        elif buf and time.monotonic() - last >= quiet_s:
             heard, buf = split(buf, final=True)
+        else:
+            heard = []
         for h in heard:
             on_heard(h)
     for h in split(buf, final=True)[0]:
