@@ -20,6 +20,17 @@ WARNINGS = {
 }
 
 
+def run_time(secs: int) -> str:
+    """The pack's run-time counter as JK's app shows it under TIME, e.g. "1Y125D12H48M51S"
+    (365-day years), leading zero units left out. It tells which pack the app is connected to."""
+    parts, rest = [], secs
+    for unit, size in (("Y", 365 * 86400), ("D", 86400), ("H", 3600), ("M", 60)):
+        n, rest = divmod(rest, size)
+        if n or parts:
+            parts.append(f"{n}{unit}")
+    return "".join(parts) + f"{rest}S"
+
+
 def decode(regs: list[int]) -> Live:
     def u16(off: int) -> int:
         return regs[off // 2]
@@ -65,6 +76,6 @@ def decode(regs: list[int]) -> Live:
         remaining_ah=s32(0xA8) / 1000,
         full_capacity_ah=u32(0xAC) / 1000,
         cycles=u32(0xB0),
-        extra=[("Balancer", f"{balance}, {s16(0xA4) / 1000:.3f} A")],
+        extra=[("Balancer", f"{balance}, {s16(0xA4) / 1000:.3f} A"), ("Run time", run_time(u32(0xBC)))],
         registers=list(regs),
     )

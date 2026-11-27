@@ -90,6 +90,7 @@ class FakeJK(FakeModbusDevice):
         put(R.LIVE, 0xAC, u32(200000))
         put(R.LIVE, 0xB0, u32(37))
         put(R.LIVE, 0xB8, [100 << 8])  # SOH 100 %
+        put(R.LIVE, 0xBC, u32(((365 + 120) * 24 + 22) * 3600 + 6 * 60 + 5))  # run time 1Y120D22H6M5S
         put(R.LIVE, 0xC0, [0x0101])  # charge on, discharge on
         put(R.LIVE, 0xD0, [0b111 << 8])  # MOSFET sensor and battery sensors 1-2 present
         put(R.LIVE, R.CLOCK_OFFSET, u32(R.pack_clock(CLOCK)))

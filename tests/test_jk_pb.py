@@ -60,6 +60,20 @@ def test_live_decode():
     assert ("MOSFET", 31) in rt.temps and rt.max_temp == 25
     assert rt.charge_allowed and rt.discharge_allowed and rt.status_text == "Discharging"
     assert rt.remaining_ah == 152.0 and rt.full_capacity_ah == 200.0 and rt.cycles == 37
+    assert dict(rt.extra)["Run time"] == "1Y120D22H6M5S"
+
+
+@pytest.mark.parametrize(
+    "secs, text",
+    [(0, "0S"), (59, "59S"), (3600, "1H0M0S"), (358 * 86400 + 19 * 3600 + 25 * 60 + 42, "358D19H25M42S"),
+     (365 * 86400, "1Y0D0H0M0S")],
+)
+def test_run_time_is_shown_as_the_jk_app_shows_it(secs, text):
+    # JK's app shows TIME as e.g. "358D19H25M42S" or "1Y125D12H48M51S" (365-day years); it matched
+    # the u32 at live 0xBC on real packs (2026-11-26).
+    from packkeeper.drivers.jk_pb.live import run_time
+
+    assert run_time(secs) == text
 
 
 def test_plan_orders_and_rules():
